@@ -51,11 +51,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 連接 Google Sheets ---
+# --- 連接 Google Sheets (雲端/本機 雙棲版) ---
 @st.cache_resource
 def connect_to_gsheet():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+    
+    # 嘗試從 Streamlit 雲端秘密庫讀取
+    if "gcp_service_account" in st.secrets:
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    # 如果找不到，就嘗試讀取本機的 JSON 檔 (讓你電腦也能跑)
+    else:
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+        
     client = gspread.authorize(creds)
     sheet = client.open("宇毛的財務追蹤表_2026")
     return sheet
