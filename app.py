@@ -7,50 +7,6 @@ from datetime import datetime
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (RWD 手機版 + 自定義字卡) ---
-st.markdown("""
-<style>
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-
-    .custom-card {
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        margin-bottom: 10px;
-        transition: transform 0.2s;
-    }
-    .custom-card:hover {
-        transform: translateY(-2px);
-    }
-    .card-title {
-        font-size: 14px;
-        color: #666;
-        margin-bottom: 5px;
-    }
-    .card-value {
-        font-size: 24px;
-        font-weight: bold;
-        margin-bottom: 5px;
-    }
-    .card-note {
-        font-size: 12px;
-        font-weight: bold;
-    }
-    div[data-testid="stExpander"] {
-        border: none;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        border-radius: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # --- 連接 Google Sheets (雲端/本機 雙棲版) ---
 @st.cache_resource
 def connect_to_gsheet():
@@ -60,7 +16,7 @@ def connect_to_gsheet():
     if "gcp_service_account" in st.secrets:
         creds_dict = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    # 如果找不到，就嘗試讀取本機的 JSON 檔 (讓你電腦也能跑)
+    # 如果找不到，就嘗試讀取本機的 JSON 檔
     else:
         creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
         
@@ -74,6 +30,73 @@ except Exception as e:
     st.error(f"❌ 連線失敗：{e}")
     st.stop()
 
+# --- CSS 美化 (強制不換行優化版) ---
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* 卡片樣式 */
+    .custom-card {
+        padding: 12px; /* 稍微縮小內距 */
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
+        transition: transform 0.2s;
+        /* 關鍵：防止內容溢出 */
+        overflow: hidden; 
+    }
+    .custom-card:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* 標題樣式 */
+    .card-title {
+        font-size: 13px; /* 微調縮小 */
+        color: #666;
+        margin-bottom: 2px;
+        /* 強制不換行 */
+        white-space: nowrap; 
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* 數值樣式 */
+    .card-value {
+        font-size: 22px; /* 微調縮小 */
+        font-weight: bold;
+        margin-bottom: 2px;
+        color: #2c3e50;
+        /* 強制不換行 */
+        white-space: nowrap; 
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* 註解樣式 */
+    .card-note {
+        font-size: 12px;
+        font-weight: bold;
+        /* 強制不換行 */
+        white-space: nowrap; 
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    div[data-testid="stExpander"] {
+        border: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- 側邊欄 ---
 st.sidebar.title("🚀 功能選單")
 page = st.sidebar.radio("請選擇功能", [
@@ -84,7 +107,7 @@ page = st.sidebar.radio("請選擇功能", [
     "📅 未來推估"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v5.1 (History Visualized)")
+st.sidebar.caption("宇毛的記帳本 v5.2 (Mobile Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -109,7 +132,7 @@ def make_card_html(title, value, note, color_theme):
     return f"""
     <div class="custom-card" style="background-color: {c['bg']}; border-left: 5px solid {c['border']};">
         <div class="card-title">{title}</div>
-        <div class="card-value" style="color: #2c3e50;">{value}</div>
+        <div class="card-value">{value}</div>
         <div class="card-note" style="color: {c['text']};">{note}</div>
     </div>
     """
@@ -121,7 +144,7 @@ if page == "💸 隨手記帳 (本月)":
     current_month = datetime.now().month
     st.subheader(f"👋 嗨，宇毛！這是 {current_month} 月的帳本")
     
-    # 預算邏輯
+    # 預算邏輯 (這裡請根據你的需求調整)
     if current_month == 2:
         monthly_budget = 97
     else:
@@ -155,9 +178,10 @@ if page == "💸 隨手記帳 (本月)":
     # --- 頂部儀表板 ---
     col1, col2, col3, col4 = st.columns(4)
     
+    # 狀態判斷
     if remaining < 0:
         remaining_color = "red"
-        remaining_note = "🛑 已透支 (危險)"
+        remaining_note = "🛑 已透支" # 文字縮短一點，避免手機上太擠
     elif remaining < 50:
         remaining_color = "red"
         remaining_note = "⚠️ 資金見底"
@@ -171,13 +195,13 @@ if page == "💸 隨手記帳 (本月)":
         gap = "N/A"
 
     with col1:
-        st.markdown(make_card_html(f"{current_month}月預算", f"${monthly_budget}", "當月額度", "blue"), unsafe_allow_html=True)
+        st.markdown(make_card_html(f"{current_month}月預算", f"${monthly_budget}", "額度", "blue"), unsafe_allow_html=True)
     with col2:
-        st.markdown(make_card_html("本月已花", f"${total_spent}", "累積支出", "gray"), unsafe_allow_html=True)
+        st.markdown(make_card_html("本月已花", f"${total_spent}", "累積", "gray"), unsafe_allow_html=True)
     with col3:
         st.markdown(make_card_html("剩餘額度", f"${remaining}", remaining_note, remaining_color), unsafe_allow_html=True)
     with col4:
-        st.markdown(make_card_html("總透支缺口", f"{gap}", "需長期填補", "orange"), unsafe_allow_html=True)
+        st.markdown(make_card_html("總透支", f"{gap}", "需填補", "orange"), unsafe_allow_html=True)
 
     if remaining < 0:
         st.error(f"🚨 {current_month}月已透支！請立即停止支出！")
@@ -220,11 +244,11 @@ if page == "💸 隨手記帳 (本月)":
                 
                 st.markdown(f"""
                 <div style="background-color: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <div>
+                    <div style="overflow: hidden;">
                         <span style="color: #888; font-size: 0.8em;">{row['日期']}</span><br>
-                        <span style="font-weight: bold; font-size: 1.1em; color: #333;">{row['項目']}</span>
+                        <span style="font-weight: bold; font-size: 1.1em; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 200px;">{row['項目']}</span>
                     </div>
-                    <div style="text-align: right;">
+                    <div style="text-align: right; min-width: 80px;">
                          <span style="color: {color}; font-weight: bold; font-size: 1.2em;">${row['金額']}</span>
                     </div>
                 </div>
@@ -233,7 +257,7 @@ if page == "💸 隨手記帳 (本月)":
         st.info(f"📅 {current_month} 月還沒有任何消費紀錄。")
 
 # ==========================================
-# 🗓️ 頁面 2：歷史帳本回顧 (視覺化升級版)
+# 🗓️ 頁面 2：歷史帳本回顧
 # ==========================================
 elif page == "🗓️ 歷史帳本回顧":
     st.subheader("🗓️ 歷史帳本查詢")
@@ -260,7 +284,6 @@ elif page == "🗓️ 歷史帳本回顧":
         available_months = [m for m in available_months if m > 0]
         
         if available_months:
-            # 讓使用者選擇月份 (預設選最後一個，即最新月份)
             selected_month = st.selectbox("請選擇月份", available_months, index=len(available_months)-1)
             
             # 篩選該月資料
@@ -270,47 +293,45 @@ elif page == "🗓️ 歷史帳本回顧":
             history_df['實際消耗'] = pd.to_numeric(history_df['實際消耗'], errors='coerce').fillna(0)
             month_total = int(history_df['實際消耗'].sum())
             
-            # 歷史預算判斷 (2月是97, 其他月預設2207)
+            # 歷史預算判斷
             hist_budget = 97 if selected_month == 2 else 2207
             hist_balance = hist_budget - month_total
             
             # 狀態判斷
             if hist_balance < 0:
                 status_color = "red"
-                status_text = "🛑 超支了"
+                status_text = "🛑 超支"
                 balance_display = f"-${abs(hist_balance)}"
             else:
                 status_color = "green"
-                status_text = "✅ 資金安全"
+                status_text = "✅ 安全"
                 balance_display = f"${hist_balance}"
 
             # --- 歷史摘要儀表板 ---
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown(make_card_html(f"{selected_month}月預算", f"${hist_budget}", "設定額度", "blue"), unsafe_allow_html=True)
+                st.markdown(make_card_html(f"{selected_month}月預算", f"${hist_budget}", "額度", "blue"), unsafe_allow_html=True)
             with c2:
-                st.markdown(make_card_html("總支出", f"${month_total}", "實際花費", "gray"), unsafe_allow_html=True)
+                st.markdown(make_card_html("總支出", f"${month_total}", "花費", "gray"), unsafe_allow_html=True)
             with c3:
-                st.markdown(make_card_html("結餘狀態", balance_display, status_text, status_color), unsafe_allow_html=True)
+                st.markdown(make_card_html("結餘", balance_display, status_text, status_color), unsafe_allow_html=True)
             
             st.markdown("---")
             st.markdown(f"### 📜 {selected_month} 月消費明細")
 
-            # --- 歷史明細 (改用卡片顯示，非表格) ---
-            # 反轉順序，讓該月最後一筆在最上面
+            # --- 歷史明細 ---
             for index, row in history_df.iloc[::-1].iterrows():
                 with st.container():
                     cost = row['實際消耗']
-                    # 顏色邏輯：有花錢是紅色，報帳/0元是灰色
                     color = "#e74c3c" if cost > 0 else "#95a5a6"
                     
                     st.markdown(f"""
                     <div style="background-color: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                        <div>
+                        <div style="overflow: hidden;">
                             <span style="color: #888; font-size: 0.8em;">{row['日期']}</span><br>
-                            <span style="font-weight: bold; font-size: 1.1em; color: #333;">{row['項目']}</span>
+                            <span style="font-weight: bold; font-size: 1.1em; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 200px;">{row['項目']}</span>
                         </div>
-                        <div style="text-align: right;">
+                        <div style="text-align: right; min-width: 80px;">
                              <span style="color: {color}; font-weight: bold; font-size: 1.2em;">${row['金額']}</span>
                              <br><span style="font-size: 0.8em; color: #aaa;">{ '報帳' if row['是否報帳'] == '是' else '自費' }</span>
                         </div>
@@ -383,7 +404,7 @@ elif page == "📊 資產與收支":
         total_row = df_assets[df_assets['資產項目'] == '總資產']
         if not total_row.empty:
             total_val = int(total_row['目前價值'].values[0])
-            st.markdown(make_card_html("目前總身價", f"${total_val:,}", "含台幣/日幣/定存", "blue"), unsafe_allow_html=True)
+            st.markdown(make_card_html("目前總身價", f"${total_val:,}", "台幣/日幣/定存", "blue"), unsafe_allow_html=True)
         
         df_chart = df_assets[df_assets['資產項目'] != '總資產']
         st.bar_chart(df_chart.set_index('資產項目')['目前價值'])
