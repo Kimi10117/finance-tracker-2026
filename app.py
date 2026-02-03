@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (v9.3) ---
+# --- CSS 美化 (v10.0) ---
 st.markdown("""
 <style>
     .block-container {
@@ -99,7 +99,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v9.3 (Gap Fix)")
+st.sidebar.caption("宇毛的記帳本 v10.0 (Asset Sync)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -130,7 +130,7 @@ def make_card_html(title, value, note, color_theme):
     """
 
 # ==========================================
-# 🏠 頁面 1：隨手記帳 (修復版)
+# 🏠 頁面 1：隨手記帳 (Asset Fix)
 # ==========================================
 if page == "💸 隨手記帳 (本月)":
     current_month = datetime.now().month
@@ -146,7 +146,7 @@ if page == "💸 隨手記帳 (本月)":
     if not df_log.empty and '已入帳' not in df_log.columns:
         df_log['已入帳'] = '已入帳'
 
-    # 1. 取得靜態透支缺口 (從 CSV)
+    # 1. 取得靜態透支缺口
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         base_gap = int(float(gap_str))
@@ -156,11 +156,10 @@ if page == "💸 隨手記帳 (本月)":
     # 2. 計算本月數據
     total_expenses_only = 0
     pending_debt = 0
-    cleared_income_sum = 0 # 新增：已入帳的收入總和
+    cleared_income_sum = 0
     current_month_logs = pd.DataFrame()
     
     if not df_log.empty:
-        # 強力日期解析
         def robust_month_parser(x):
             try: return pd.to_datetime(str(x), format='%m/%d').month
             except:
@@ -175,24 +174,20 @@ if page == "💸 隨手記帳 (本月)":
         current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
         current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
         
-        # A. 計算已實現支出 (實際消耗 > 0)
+        # A. 已實現支出
         total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
         
-        # B. 計算「未入帳的報帳支出」 (增加負債)
+        # B. 未入帳報帳支出 (負債)
         pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
         pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
 
-        # C. 計算「已入帳的收入」 (填補缺口)
-        # 邏輯：收入的「實際消耗」是負數，所以取絕對值加總
-        # 或者直接篩選類型=收入且狀態=已入帳
-        # 這裡我們用實際消耗 < 0 來抓取最準確，因為這代表程式已經確認它是有效收入
+        # C. 已入帳收入
         cleared_income_sum = abs(int(current_month_logs[current_month_logs['實際消耗'] < 0]['實際消耗'].sum()))
 
-    # 3. 調整後的缺口 (填坑邏輯修復)
-    # 公式：原始缺口 - 未入帳支出 + 已入帳收入
+    # 3. 調整後的缺口
     current_gap = base_gap - pending_debt + cleared_income_sum
 
-    # 4. 額度計算 (溢出才加到額度)
+    # 4. 額度計算
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
@@ -262,7 +257,20 @@ if page == "💸 隨手記帳 (本月)":
                             status_val = "已入帳" 
                         
                         ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
-                        st.toast(f"💸 支出已記：${amount_input}")
+                        
+                        # --- 支出同步扣減資產 (新增功能) ---
+                        if ws_assets:
+                            try:
+                                all_assets = ws_assets.get_all_records()
+                                for ai, arow in enumerate(all_assets):
+                                    if arow.get('資產項目') == '台幣活存':
+                                        curr_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
+                                        # 支出：減少資產
+                                        ws_assets.update_cell(ai + 2, 2, curr_val - amount_input)
+                                        break
+                            except: pass
+                        
+                        st.toast(f"💸 支出已記：${amount_input} (資產已扣除)")
                         
                     else:
                         actual_cost = 0 
@@ -275,7 +283,7 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 📜 明細列表 ---
     if not current_month_logs.empty:
-        st.markdown("### 📜 本月明細") # 文字修正：移除 (可展開修改狀態)
+        st.markdown("### 📜 本月明細")
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
             real_row_idx = index + 5 
 
@@ -317,23 +325,39 @@ if page == "💸 隨手記帳 (本月)":
                         if new_state != is_cleared:
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
+                            asset_change = 0 # 資產變動量
                             
                             if txn_class == "報帳":
                                 new_actual_cost = row['金額'] if not new_state else 0
-                                
+                                # 報帳邏輯：
+                                # 未入帳 -> 已入帳：代表收到款項 -> 資產增加 (加回)
+                                # 已入帳 -> 未入帳：代表取消收訖(變回墊款) -> 資產減少
+                                if new_state: # 變為已入帳
+                                    asset_change = row['金額']
+                                else: # 變為未入帳
+                                    asset_change = -row['金額']
+
                             elif txn_class == "收入":
                                 new_actual_cost = -row['金額'] if new_state else 0
-                                if ws_assets:
-                                    try:
-                                        all_assets = ws_assets.get_all_records()
-                                        for ai, arow in enumerate(all_assets):
-                                            if arow.get('資產項目') == '台幣活存':
-                                                curr_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
-                                                change = row['金額'] if new_state else -row['金額']
-                                                ws_assets.update_cell(ai + 2, 2, curr_val + change)
-                                                st.toast(f"💰 資產更新: {curr_val} -> {curr_val + change}")
-                                                break
-                                    except: pass
+                                # 收入邏輯：
+                                # 未入帳 -> 已入帳：收到錢 -> 資產增加
+                                # 已入帳 -> 未入帳：取消收入 -> 資產減少
+                                if new_state:
+                                    asset_change = row['金額']
+                                else:
+                                    asset_change = -row['金額']
+                            
+                            # 更新資產
+                            if ws_assets and asset_change != 0:
+                                try:
+                                    all_assets = ws_assets.get_all_records()
+                                    for ai, arow in enumerate(all_assets):
+                                        if arow.get('資產項目') == '台幣活存':
+                                            curr_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
+                                            ws_assets.update_cell(ai + 2, 2, curr_val + asset_change)
+                                            st.toast(f"💰 資產更新: {curr_val} -> {curr_val + asset_change}")
+                                            break
+                                except: pass
 
                             if ws_log:
                                 ws_log.update_cell(real_row_idx, 5, new_actual_cost)
