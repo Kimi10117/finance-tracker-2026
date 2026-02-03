@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v11.0 Ultimate UI) ---
+# --- CSS 極致美化 (v11.1 Visual Fix) ---
 st.markdown("""
 <style>
     /* 全局背景微調 */
@@ -19,8 +19,10 @@ st.markdown("""
     /* 隱藏預設元件 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* 1. 修復頂部被遮擋的問題 (增加 padding-top) */
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 3.5rem;  /* 從 1.5rem 改為 3.5rem */
         padding-bottom: 5rem;
         padding-left: 1rem;
         padding-right: 1rem;
@@ -188,7 +190,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v11.0 (Ultimate UI)")
+st.sidebar.caption("宇毛的記帳本 v11.1 (Visual Hotfix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -213,16 +215,19 @@ def make_modern_card(title, value, note, color_theme, progress=None):
     }
     t = themes.get(color_theme, themes["dark"])
     
-    # 進度條 HTML
+    # 2. 修復程式碼外露問題 (進度條 HTML 生成邏輯優化)
     progress_html = ""
     if progress is not None:
-        # progress 0.0 ~ 1.0
-        pct = min(max(progress, 0), 1) * 100
-        progress_html = f"""
-        <div class="progress-bg">
-            <div class="progress-fill" style="width: {pct}%; background-color: {t['text']};"></div>
-        </div>
-        """
+        try:
+            # 確保是浮點數且在 0~1 之間
+            pct = min(max(float(progress), 0.0), 1.0) * 100
+            progress_html = f"""
+            <div class="progress-bg">
+                <div class="progress-fill" style="width: {pct}%; background-color: {t['text']};"></div>
+            </div>
+            """
+        except:
+            progress_html = "" # 計算錯誤時不顯示進度條，避免噴錯
         
     return f"""
     <div class="custom-card">
@@ -258,9 +263,6 @@ if page == "💸 隨手記帳 (本月)":
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         base_gap_static = int(float(gap_str))
-        # 讀取初始缺口用於計算進度 (假設初始大概 -3000 之類的，這裡動態抓)
-        # 為了進度條好看，我們假設一個分母，或者讀取 "原本應有餘額" 與 "目前" 的差
-        # 這裡簡化邏輯：用 base_gap 當分母 (如果是負的)
         max_gap_ref = 3000 
     except:
         base_gap_static = -9999
@@ -303,16 +305,15 @@ if page == "💸 隨手記帳 (本月)":
     col1, col2, col3, col4 = st.columns(4)
     
     # 邏輯判斷 & 樣式設定
-    gap_progress = 0
+    gap_progress = 0.0
     if current_gap < 0:
         gap_status = "📉 填坑中..."
         gap_color = "orange"
         gap_note = "收入優先抵債"
-        # 計算填坑進度：越接近 0 越滿
-        # 假設 -1337，進度 = 1 - (1337 / 3000)
         try:
-            gap_progress = 1 - (abs(current_gap) / max(abs(base_gap_static)+1000, 2000))
-        except: gap_progress = 0
+            # 確保除數不為 0
+            gap_progress = 1.0 - (abs(current_gap) / max(abs(base_gap_static)+1000, 2000))
+        except: gap_progress = 0.0
     else:
         gap_status = "🎉 已轉正"
         gap_color = "green"
@@ -345,7 +346,6 @@ if page == "💸 隨手記帳 (本月)":
     # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
     
-    # 使用 Radio 但透過 CSS 偽裝成 Segmented Control
     txn_type = st.radio("類型", ["💸 支出 (花錢)", "💰 收入 (賺錢)"], horizontal=True, label_visibility="collapsed")
     
     with st.form("expense_form", clear_on_submit=True):
@@ -365,7 +365,6 @@ if page == "💸 隨手記帳 (本月)":
         else:
             st.caption("ℹ️ 收入預設為 **「未入帳」**")
             
-        # 大大的送出按鈕
         submitted = st.form_submit_button("確認記帳", use_container_width=True, type="primary")
 
         if submitted and ws_log:
@@ -380,7 +379,6 @@ if page == "💸 隨手記帳 (本月)":
                     
                     ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
                     
-                    # 支出扣資產
                     if ws_assets:
                         try:
                             all_assets = ws_assets.get_all_records()
@@ -413,7 +411,6 @@ if page == "💸 隨手記帳 (本月)":
             status = str(row.get('已入帳', '已入帳')).strip() or "已入帳"
             cost = row['實際消耗']
             
-            # 視覺邏輯
             if txn_class == "收入":
                 badge_html = make_badge(status, "green" if status == "已入帳" else "gray")
                 color = "#2dce89" if status == "已入帳" else "#adb5bd"
@@ -422,19 +419,17 @@ if page == "💸 隨手記帳 (本月)":
                 badge_html = make_badge(status, "gray" if status == "已入帳" else "orange")
                 color = "#fb6340" if status == "未入帳" else "#adb5bd"
                 prefix = "$"
-            else: # 一般支出
+            else: 
                 badge_html = ""
                 color = "#f5365c"
                 prefix = "-$"
 
             amt_html = f'<span style="color: {color}; font-weight: 800; font-size: 1.1em;">{prefix}{row["金額"]}</span>'
 
-            # 列表項目容器
             with st.container():
                 col_info, col_amt, col_action = st.columns([3, 1.5, 1])
                 
                 with col_info:
-                    # 使用 HTML 渲染標題和標籤
                     st.markdown(f"""
                     <div style="line-height:1.4;">
                         <span style="font-size:0.85em; color:#8898aa;">{row['日期']}</span><br>
@@ -447,11 +442,9 @@ if page == "💸 隨手記帳 (本月)":
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 
                 with col_action:
-                    # 只有報帳和收入顯示開關
                     if txn_class in ["報帳", "收入"]:
                         is_cleared = (status == "已入帳")
                         if st.toggle("", value=is_cleared, key=f"tg_{index}") != is_cleared:
-                            # 狀態變更邏輯 (同 v10.0)
                             new_state = not is_cleared
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
@@ -586,7 +579,7 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4 & 5：維持不變 (樣式自動繼承)
+# 📅 頁面 4 & 5：維持不變
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
