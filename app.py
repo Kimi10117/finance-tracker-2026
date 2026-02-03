@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v12.0 Dark Mode Fix) ---
+# --- CSS 極致美化 (v12.1 Style Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -29,12 +29,12 @@ st.markdown("""
 
     /* === 現代化卡片設計 (支援 Dark Mode) === */
     .custom-card {
-        background-color: var(--secondary-background-color); /* 自動適應深淺 */
+        background-color: var(--secondary-background-color);
         padding: 15px;
         border-radius: 16px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* 稍微加深陰影以適應深色 */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 12px;
-        border: 1px solid rgba(128, 128, 128, 0.1); /* 微弱邊框 */
+        border: 1px solid rgba(128, 128, 128, 0.1);
         transition: transform 0.2s ease;
     }
     .custom-card:active {
@@ -43,8 +43,8 @@ st.markdown("""
     
     .card-title {
         font-size: 13px;
-        color: var(--text-color); /* 自動變色 */
-        opacity: 0.7; /* 讓標題稍微淡一點 */
+        color: var(--text-color);
+        opacity: 0.7;
         font-weight: 600;
         letter-spacing: 0.5px;
         text-transform: uppercase;
@@ -54,7 +54,7 @@ st.markdown("""
     .card-value {
         font-size: 26px;
         font-weight: 800;
-        color: var(--text-color); /* 自動變色 */
+        color: var(--text-color);
         letter-spacing: -0.5px;
         line-height: 1.2;
     }
@@ -72,7 +72,7 @@ st.markdown("""
     .progress-bg {
         width: 100%;
         height: 8px;
-        background-color: rgba(128, 128, 128, 0.2); /* 半透明灰，深淺皆宜 */
+        background-color: rgba(128, 128, 128, 0.2);
         border-radius: 4px;
         margin-top: 8px;
         overflow: hidden;
@@ -108,7 +108,7 @@ st.markdown("""
         align-items: center;
     }
     
-    /* 膠囊標籤 (改用半透明背景) */
+    /* 膠囊標籤 */
     .badge {
         display: inline-block;
         padding: 3px 8px;
@@ -117,16 +117,14 @@ st.markdown("""
         border-radius: 12px;
         margin-top: 4px;
     }
-    /* 使用 rgba 確保在深色背景也不會太亮刺眼 */
     .badge-gray { background: rgba(136, 152, 170, 0.2); color: var(--text-color); opacity: 0.8; }
     .badge-orange { background: rgba(251, 99, 64, 0.15); color: #fb6340; }
     .badge-green { background: rgba(45, 206, 137, 0.15); color: #2dce89; }
 
     /* === 底部總結區 === */
     .summary-box {
-        /* 使用漸層色，深色模式下依然保持質感 */
         background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); 
-        color: white; /* 強制白字，因為背景是深色 */
+        color: white;
         padding: 24px;
         border-radius: 20px;
         margin-top: 24px;
@@ -169,7 +167,7 @@ st.markdown("""
     div[role="radiogroup"] label[data-checked="true"] {
         background-color: rgba(128, 128, 128, 0.1);
         font-weight: bold;
-        color: #5e72e4; /* 藍色高亮 */
+        color: #5e72e4;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -203,7 +201,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v12.0 (Dark Mode)")
+st.sidebar.caption("宇毛的記帳本 v12.1 (Mobile Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -214,23 +212,20 @@ def get_data(worksheet_name, head=1):
     except:
         return pd.DataFrame(), None
 
-# --- UI 元件生成器 (Dark Mode Fix) ---
+# --- UI 元件生成器 ---
 
 def make_modern_card(title, value, note, color_theme, progress=None):
-    # 修改顏色策略：只定義強調色，主色調跟隨系統
-    # light 屬性移除，改用 transparent 或 css variable
     themes = {
         "blue":   "#5e72e4",
         "red":    "#f5365c",
         "green":  "#2dce89",
         "orange": "#fb6340",
-        "gray":   "var(--text-color)", # 自動適應
+        "gray":   "var(--text-color)",
         "dark":   "var(--text-color)",
         "purple": "#8e44ad"
     }
     accent_color = themes.get(color_theme, "var(--text-color)")
     
-    # 修正：針對 Note 文字顏色，如果是 gray/dark，讓它稍微透明一點，而不是全黑/全白
     note_style = f"color: {accent_color};"
     if color_theme in ["gray", "dark"]:
         note_style = "color: var(--text-color); opacity: 0.7;"
@@ -239,7 +234,6 @@ def make_modern_card(title, value, note, color_theme, progress=None):
     if progress is not None:
         try:
             pct = min(max(float(progress), 0.0), 1.0) * 100
-            # 使用 accent_color 作為進度條顏色
             progress_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {accent_color};"></div></div>'
         except:
             progress_html = ""
@@ -376,6 +370,7 @@ if page == "💸 隨手記帳 (本月)":
                         actual_cost = amount_input; status_val = "未入帳"
                     else:
                         actual_cost = amount_input; status_val = "已入帳"
+                    
                     ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
                     
                     if ws_assets:
@@ -528,7 +523,7 @@ elif page == "🛍️ 購物冷靜清單":
                             st.rerun()
 
 # ==========================================
-# 📊 頁面 3：資產與收支
+# 📊 頁面 3：資產與收支 (Style Fix)
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
@@ -563,29 +558,42 @@ elif page == "📊 資產與收支":
         try:
             exp = df_model[df_model['項目 (A)'].astype(str).str.contains("支出總計")]['金額 (B)'].values[0]
             bal = df_model[df_model['項目 (A)'].astype(str).str.contains("每月淨剩餘")]['金額 (B)'].values[0]
+            # --- 修正處：將固定餘額設為綠色，樣式統一 ---
             st.markdown(f"""
             <div class="summary-box">
                 <div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div>
-                <div style="text-align:right;"><div class="summary-title">固定餘額</div><div class="summary-val">${bal}</div></div>
+                <div style="text-align:right;"><div class="summary-title">固定餘額</div><div style="font-size:20px;font-weight:bold;color:#2dce89;">${bal}</div></div>
             </div>""", unsafe_allow_html=True)
         except: pass
 
 # ==========================================
-# 📅 頁面 4 & 5：維持不變
+# 📅 頁面 4：未來推估 (Mobile Order Fix)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
     df_future, _ = get_data("未來四個月推估")
     if not df_future.empty:
         target_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
-        cols = st.columns(3)
-        for i, (index, row) in enumerate(target_df.iterrows()):
-            col = cols[i % 3]
-            month = str(row['月份 (A)'])
-            est = row['預估實際餘額 (D)']
-            tgt = row['目標應有餘額 (E)']
-            with col: st.markdown(f"""<div class="asset-card" style="text-align:center;"><div style="font-weight:bold;margin-bottom:5px;color:var(--text-color);">{month}</div><div style="font-size:12px;opacity:0.7;">目標: ${tgt}</div><div style="font-size:20px;font-weight:bold;color:#5e72e4;">${est}</div></div>""", unsafe_allow_html=True)
-            st.write("") 
+        
+        # --- 手機版順序修正 (Batch Processing) ---
+        # 邏輯：手動將資料分組，每 3 個一組建立一個 columns 容器
+        # 這樣手機版就會顯示：[1,2,3] 的區塊 (1->2->3) 然後才是 [4,5,6] 的區塊
+        
+        # 將 DataFrame 切分成每 3 筆一組
+        rows_data = [target_df.iloc[i:i+3] for i in range(0, len(target_df), 3)]
+        
+        for row_batch in rows_data:
+            cols = st.columns(3) # 建立新的一列
+            # 在這一列中填入資料
+            for i, (index, row) in enumerate(row_batch.iterrows()):
+                # 確保不超出 columns 數量 (雖然 batch 是 3，但最後一組可能少於 3)
+                if i < 3:
+                    month = str(row['月份 (A)'])
+                    est = row['預估實際餘額 (D)']
+                    tgt = row['目標應有餘額 (E)']
+                    with cols[i]:
+                        st.markdown(f"""<div class="asset-card" style="text-align:center;"><div style="font-weight:bold;margin-bottom:5px;color:var(--text-color);">{month}</div><div style="font-size:12px;opacity:0.7;">目標: ${tgt}</div><div style="font-size:20px;font-weight:bold;color:#5e72e4;">${est}</div></div>""", unsafe_allow_html=True)
+        
         try:
             last = df_future.iloc[-1]
             st.markdown("---")
