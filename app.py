@@ -7,12 +7,12 @@ from datetime import datetime
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (v7.0 最終優化版) ---
+# --- CSS 美化 (v7.1 Debug Fix) ---
 st.markdown("""
 <style>
     .block-container {
         padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-bottom: 5rem;
         padding-left: 1rem;
         padding-right: 1rem;
     }
@@ -26,6 +26,7 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         margin-bottom: 10px;
         border: 1px solid #f0f0f0;
+        background-color: white;
         overflow: hidden; 
     }
     .card-title {
@@ -54,6 +55,7 @@ st.markdown("""
         border-radius: 8px;
         text-align: center;
         margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .asset-val { font-size: 20px; font-weight: bold; color: #2c3e50; }
     .asset-lbl { font-size: 12px; color: #666; }
@@ -81,6 +83,7 @@ st.markdown("""
         border-radius: 8px;
         text-align: center;
         height: 100%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -114,7 +117,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v7.0 (Gap Filling Logic)")
+st.sidebar.caption("宇毛的記帳本 v7.1 (Debug Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -151,55 +154,39 @@ if page == "💸 隨手記帳 (本月)":
     current_month = datetime.now().month
     st.subheader(f"👋 {current_month} 月財務面板")
     
-    # 1. 基礎預算 (本金)
     base_budget = 97 if current_month == 2 else 2207
     
-    # 2. 讀取資料
     df_log, ws_log = get_data("流動支出日記帳", head=4)
     df_assets, ws_assets = get_data("資產總覽表")
     df_status, _ = get_data("現況資金檢核")
 
-    # 3. 取得「透支缺口」 (這是關鍵！)
+    # 取得「透支缺口」
     try:
-        # 假設缺口在最後一列的數值欄位
-        # 必須清理逗號並轉數字
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         current_gap = int(float(gap_str))
     except:
-        current_gap = -9999 # 讀取失敗時的預設值
+        current_gap = -9999
 
-    # 4. 計算本月「純支出」
+    # 計算本月「純支出」
     total_expenses_only = 0
     current_month_logs = pd.DataFrame()
     
     if not df_log.empty:
-        # 日期篩選
         df_log['Month'] = pd.to_datetime(df_log['日期'], format='%m/%d', errors='coerce').dt.month
-        # 補上年份造成的誤差 (若跨年需更嚴謹，目前簡化)
         df_log['Month'] = df_log['Month'].fillna(0).astype(int)
         
         current_month_logs = df_log[df_log['Month'] == current_month].copy()
         
-        # 只計算「正數」的實際消耗 (即支出)，收入不在此扣除，因為收入已經去補資產(缺口)了
-        # 這裡邏輯要很清楚：
-        # 收入 -> 進資產 -> 缺口變小 (CSV變動) -> current_gap 變大(接近0)
-        # 所以 Remaining = Base Budget - Expenses + Max(0, current_gap)
-        
+        # 只計算「正數」的實際消耗
         current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
-        # 總支出 (只算大於0的)
         total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
 
-    # 5. 核心公式：可用額度計算
-    # 如果缺口還是負的，額度 = 預算 - 支出 (收入拿去填坑了，你看不到它增加預算)
-    # 如果缺口轉正了，額度 = 預算 - 支出 + 缺口 (多出來的錢變成預算)
-    
-    surplus_from_gap = max(0, current_gap) # 只有正數才會加進來
+    surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
     # --- 頂部儀表板 ---
     col1, col2, col3, col4 = st.columns(4)
     
-    # 判斷顯示文字
     if current_gap < 0:
         gap_status = "📉 填坑中..."
         gap_color = "orange"
@@ -209,7 +196,6 @@ if page == "💸 隨手記帳 (本月)":
         gap_color = "green"
         gap_note = f"溢出 +${surplus_from_gap} 至額度"
 
-    # 判斷剩餘額度顏色
     if remaining < 0:
         rem_color = "red"
         rem_note = "🛑 已透支"
@@ -229,10 +215,8 @@ if page == "💸 隨手記帳 (本月)":
     with col4:
         st.markdown(make_card_html("總透支缺口", f"${current_gap}", gap_note, gap_color), unsafe_allow_html=True)
 
-    # 警示語
     if current_gap < 0:
-        st.info(f"💡 你的額外收入正在優先填補 ${abs(current_gap)} 的缺口，填滿後才會增加可用額度喔！")
-    
+        st.info(f"💡 額外收入正優先填補 ${abs(current_gap)} 缺口，填滿後才會增加可用額度。")
     if remaining < 0:
         st.error("🚨 警告：本月已透支！停止支出！")
 
@@ -258,7 +242,7 @@ if page == "💸 隨手記帳 (本月)":
                 is_reimbursable = c4.radio("報帳?", ["否", "是"], horizontal=True)
             else:
                 st.caption("✨ 收入將自動存入台幣活存，並優先抵銷總透支。")
-                update_asset = True # 收入預設強制更新資產，才能連動缺口
+                update_asset = True 
 
             submitted = st.form_submit_button("✅ 送出交易", use_container_width=True)
 
@@ -271,11 +255,9 @@ if page == "💸 隨手記帳 (本月)":
                         ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost])
                         st.toast(f"💸 支出已記：${amount_input}")
                     else:
-                        # 收入：實際消耗記負數
                         actual_cost = -amount_input
                         ws_log.append_row([date_str, item_input, amount_input, "收入", actual_cost])
                         
-                        # 連動資產 (重要！)
                         if update_asset and ws_assets:
                             try:
                                 all_assets = ws_assets.get_all_records()
@@ -283,11 +265,11 @@ if page == "💸 隨手記帳 (本月)":
                                     if row.get('資產項目') == '台幣活存':
                                         current_val = int(str(row.get('目前價值', 0)).replace(',', ''))
                                         new_val = current_val + amount_input
-                                        ws_assets.update_cell(i + 2, 2, new_val) # 更新儲存格
+                                        ws_assets.update_cell(i + 2, 2, new_val)
                                         st.toast(f"💰 資產已更新：台幣 +${amount_input}")
                                         break
                             except:
-                                st.error("資產連動失敗，請檢查表格格式")
+                                st.error("資產連動失敗")
                     
                     import time
                     time.sleep(1)
@@ -314,15 +296,54 @@ if page == "💸 隨手記帳 (本月)":
                 """, unsafe_allow_html=True)
 
 # ==========================================
-# 📊 頁面 3：資產與收支 (模組化新設計)
+# 🛍️ 頁面 2：購物冷靜清單 (欄位名稱修正)
+# ==========================================
+elif page == "🛍️ 購物冷靜清單":
+    st.subheader("🧊 購物冷靜清單")
+    df_shop, ws_shop = get_data("購物冷靜清單")
+
+    with st.expander("➕ 新增願望", expanded=False):
+        with st.form("shopping_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            s_name = c1.text_input("物品")
+            s_price = c2.number_input("價格", min_value=0)
+            if st.form_submit_button("加入"):
+                if ws_shop:
+                    # 寫入預設值
+                    ws_shop.append_row([datetime.now().strftime("%m/%d"), s_name, s_price, "3", "2026/07/01", "延後", ""])
+                    st.rerun()
+
+    if not df_shop.empty:
+        for i, row in df_shop.iterrows():
+            # 優先抓取乾淨的欄位名稱，如果沒有才抓帶括號的
+            item_name = row.get('物品名稱', row.get('物品名稱 (B)', '未命名'))
+            
+            # 價格處理：轉字串 -> 去逗號 -> 轉數字
+            price_raw = row.get('預估價格', row.get('預估價格 (C)', 0))
+            try:
+                price_val = int(str(price_raw).replace(',', ''))
+            except:
+                price_val = 0
+                
+            decision = row.get('最終決策', row.get('最終決策 (G)', '考慮中'))
+            note = row.get('備註', row.get('理由與備註 (H)', '無'))
+
+            status_color = "red" if decision == "延後" else "green"
+            
+            with st.expander(f"🛒 **{item_name}** - ${price_val:,}"):
+                st.markdown(f"**決策：** :{status_color}[{decision}]")
+                st.info(f"💡 {note}")
+    else:
+        st.info("清單是空的！")
+
+# ==========================================
+# 📊 頁面 3：資產與收支 (過濾器修正)
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
     
     df_assets, _ = get_data("資產總覽表")
     if not df_assets.empty:
-        # 1. 抓取各項資產數值
-        # 先轉字典方便查找
         df_assets['目前價值'] = df_assets['目前價值'].astype(str).str.replace(',', '')
         df_assets['目前價值'] = pd.to_numeric(df_assets['目前價值'], errors='coerce').fillna(0)
         
@@ -333,10 +354,8 @@ elif page == "📊 資產與收支":
         fixed_val = int(assets_dict.get('定存累計', 0))
         total_net_worth = int(assets_dict.get('總資產', 0))
 
-        # 2. 總身價大卡片
         st.markdown(make_card_html("目前總身價 (Net Worth)", f"${total_net_worth:,}", "含所有資產", "blue"), unsafe_allow_html=True)
         
-        # 3. 三個獨立模組 (台幣/日幣/定存)
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown(f"""<div class="asset-card"><div class="asset-val">${twd_val:,}</div><div class="asset-lbl">🇹🇼 台幣活存</div></div>""", unsafe_allow_html=True)
@@ -347,30 +366,31 @@ elif page == "📊 資產與收支":
 
     st.markdown("---")
     
-    # --- 固定收支區塊 (UI 重構) ---
     st.subheader("📉 每月固定收支結構")
     df_model, _ = get_data("每月收支模型")
     
     if not df_model.empty:
-        # 清單顯示
         for i, row in df_model.iterrows():
-            item = row.get('項目 (A)', row.get('項目'))
-            amt = row.get('金額 (B)', row.get('金額'))
+            item = str(row.get('項目 (A)', row.get('項目', ''))).strip()
+            amt_raw = row.get('金額 (B)', row.get('金額', ''))
             
-            # 排除總結列，只顯示細項
-            if "總計" not in str(item) and "剩餘" not in str(item):
-                amt_str = str(amt)
-                icon = "🔴" if amt_str.startswith('-') else "🟢"
-                st.markdown(f"**{icon} {item}**: ${amt}")
+            # --- 過濾器 Fix ---
+            # 1. 如果項目是空的，跳過
+            if not item:
+                continue
+            # 2. 如果是標題列 (例如 "固定支出")，通常金額是空的，跳過
+            if str(amt_raw).strip() == '' or pd.isna(amt_raw):
+                continue
+            
+            # 排除總結列
+            if "總計" not in item and "剩餘" not in item:
+                icon = "🔴" if str(amt_raw).startswith('-') else "🟢"
+                st.markdown(f"**{icon} {item}**: ${amt_raw}")
 
-        # 抓取底部總結 (假設在最後兩列)
         try:
-            # 這裡假設 CSV 最後兩列分別是「支出總計」和「每月淨剩餘」
-            # 為了保險，我們直接用過濾的方式找
             total_expense = df_model[df_model['項目 (A)'].astype(str).str.contains("支出總計")]['金額 (B)'].values[0]
             monthly_balance = df_model[df_model['項目 (A)'].astype(str).str.contains("每月淨剩餘")]['金額 (B)'].values[0]
             
-            # 特殊深色區塊顯示
             st.markdown(f"""
             <div class="summary-box">
                 <div>
@@ -384,10 +404,10 @@ elif page == "📊 資產與收支":
             </div>
             """, unsafe_allow_html=True)
         except:
-            st.warning("無法自動讀取總結欄位，請檢查表格名稱是否為「支出總計」與「每月淨剩餘」")
+            pass
 
 # ==========================================
-# 📅 頁面 4：未來推估 (六個月卡片陣列)
+# 📅 頁面 4：未來推估 (四月跑版修正)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
@@ -395,21 +415,17 @@ elif page == "📅 未來推估":
     df_future, _ = get_data("未來四個月推估")
     
     if not df_future.empty:
-        # 使用 Grid 佈局顯示卡片
-        # 假設資料有：月份, 預估實際餘額, 目標應有餘額
+        # 過濾掉 '初始狀態'，只留月份
+        target_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
         
-        # 為了排版好看，我們每 3 個月一列
         cols = st.columns(3)
         
-        for index, row in df_future.iterrows():
-            # 忽略初始狀態，只看月份
-            month_name = str(row['月份 (A)'])
-            if "初始" in month_name:
-                continue
-                
-            # 輪流使用 3 個欄位
-            col = cols[index % 3] # 這邊 index 需要調整一下因為跳過了初始
+        # --- 跑版修正 Fix ---
+        # 使用 enumerate 來確保計數器 i 是連續的 (0, 1, 2...)
+        for i, (index, row) in enumerate(target_df.iterrows()):
+            col = cols[i % 3] # 這樣就能準確地 0, 1, 2 循環分配
             
+            month_name = str(row['月份 (A)'])
             est_bal = row['預估實際餘額 (D)']
             target_bal = row['目標應有餘額 (E)']
             
@@ -421,9 +437,8 @@ elif page == "📅 未來推估":
                     <div style="font-size:20px; font-weight:bold; color:#2980b9;">${est_bal}</div>
                 </div>
                 """, unsafe_allow_html=True)
-                st.write("") # 間距
+                st.write("") 
 
-        # 6月最終結餘 Highlight
         try:
             last_row = df_future.iloc[-1]
             last_month = last_row['月份 (A)']
@@ -435,28 +450,48 @@ elif page == "📅 未來推估":
             pass
 
 # ==========================================
-# 其他頁面保持精簡 (如歷史/購物)
+# 🗓️ 頁面 5：歷史帳本回顧 (功能回歸)
 # ==========================================
-elif page == "🛍️ 購物冷靜清單":
-    st.subheader("🧊 購物冷靜清單")
-    df_shop, ws_shop = get_data("購物冷靜清單")
-
-    with st.expander("➕ 新增願望", expanded=False):
-        with st.form("shopping_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            s_name = c1.text_input("物品")
-            s_price = c2.number_input("價格", min_value=0)
-            if st.form_submit_button("加入"):
-                if ws_shop:
-                    ws_shop.append_row([datetime.now().strftime("%m/%d"), s_name, s_price, "3", "2026/07/01", "延後", ""])
-                    st.rerun()
-
-    if not df_shop.empty:
-        for i, row in df_shop.iterrows():
-            status_color = "red" if row.get('最終決策') == "延後" else "green"
-            with st.expander(f"🛒 **{row.get('物品名稱 (B)')}** - ${row.get('預估價格 (C)')}"):
-                st.markdown(f"**決策：** :{status_color}[{row.get('最終決策')}]")
-                st.info(f"💡 {row.get('理由與備註 (H)')}")
-
 elif page == "🗓️ 歷史帳本回顧":
-    st.info("請參考隨手記帳頁面的本月明細，或待累積更多資料後查看。")
+    st.subheader("🗓️ 歷史帳本查詢")
+    
+    df_log, _ = get_data("流動支出日記帳", head=4)
+    
+    if not df_log.empty:
+        df_log['Month'] = pd.to_datetime(df_log['日期'], format='%m/%d', errors='coerce').dt.month
+        df_log['Month'] = df_log['Month'].fillna(0).astype(int)
+        
+        available_months = sorted(df_log['Month'].unique())
+        available_months = [m for m in available_months if m > 0]
+        
+        if available_months:
+            selected_month = st.selectbox("請選擇月份", available_months, index=len(available_months)-1)
+            
+            history_df = df_log[df_log['Month'] == selected_month].copy()
+            history_df['實際消耗'] = pd.to_numeric(history_df['實際消耗'], errors='coerce').fillna(0)
+            month_total = int(history_df['實際消耗'].sum())
+            
+            # 簡單回顧卡片
+            st.markdown(make_card_html(f"{selected_month}月 淨支出", f"${month_total}", "含收入抵銷後", "gray"), unsafe_allow_html=True)
+            
+            st.markdown("### 📜 明細回顧")
+            for index, row in history_df.iloc[::-1].iterrows():
+                with st.container():
+                    cost = row['實際消耗']
+                    if cost > 0:
+                        color, prefix = "#e74c3c", "-$"
+                    elif cost < 0:
+                        color, prefix = "#2ecc71", "+$"
+                    else:
+                        color, prefix = "#95a5a6", "$"
+                    
+                    st.markdown(f"""
+                    <div style="background-color: white; padding: 10px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                        <div><span style="color:#888;font-size:0.8em;">{row['日期']}</span><br><b>{row['項目']}</b></div>
+                        <div style="text-align:right;"><span style="color:{color};font-weight:bold;">{prefix}{row['金額']}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("目前還沒有歷史資料。")
+    else:
+        st.info("日記帳是空的。")
