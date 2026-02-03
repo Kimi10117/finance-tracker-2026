@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (v9.0 狀態管理版) ---
+# --- CSS 美化 (v9.1 修復版) ---
 st.markdown("""
 <style>
     .block-container {
@@ -99,9 +99,10 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v9.0 (Status Mgr)")
+st.sidebar.caption("宇毛的記帳本 v9.1 (Stable Fix)")
 
 # --- 讀取資料函式 ---
+# 這裡不使用 cache，確保每次動作都讀到最新寫入的資料
 def get_data(worksheet_name, head=1):
     try:
         ws = sh.worksheet(worksheet_name)
@@ -130,7 +131,7 @@ def make_card_html(title, value, note, color_theme):
     """
 
 # ==========================================
-# 🏠 頁面 1：隨手記帳 (含狀態管理)
+# 🏠 頁面 1：隨手記帳 (含狀態管理 & 修復版)
 # ==========================================
 if page == "💸 隨手記帳 (本月)":
     current_month = datetime.now().month
@@ -142,25 +143,56 @@ if page == "💸 隨手記帳 (本月)":
     df_assets, ws_assets = get_data("資產總覽表")
     df_status, _ = get_data("現況資金檢核")
 
-    # 1. 取得透支缺口
+    # 1. 取得靜態透支缺口 (從 CSV)
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
-        current_gap = int(float(gap_str))
+        base_gap = int(float(gap_str))
     except:
-        current_gap = -9999
+        base_gap = -9999
 
-    # 2. 計算本月支出 (只算實際消耗 > 0)
+    # 2. 計算本月數據 & 即時負債
     total_expenses_only = 0
+    pending_debt = 0 # 尚未入帳的負債
     current_month_logs = pd.DataFrame()
     
     if not df_log.empty:
-        df_log['Month'] = pd.to_datetime(df_log['日期'], format='%m/%d', errors='coerce').dt.month
-        df_log['Month'] = df_log['Month'].fillna(0).astype(int)
-        current_month_logs = df_log[df_log['Month'] == current_month].copy()
-        current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
-        total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
+        # 強化的日期解析器 (避免資料消失)
+        def robust_month_parser(x):
+            try:
+                # 嘗試標準格式
+                return pd.to_datetime(str(x), format='%m/%d').month
+            except:
+                try:
+                    # 嘗試其他可能格式
+                    return pd.to_datetime(str(x)).month
+                except:
+                    # 如果真的讀不到，預設為當月 (防止資料消失，寧可顯示也不要隱藏)
+                    # 只有當 x 為空或完全錯誤時才回傳 0
+                    if str(x).strip() == "": return 0
+                    return current_month 
 
-    # 3. 額度計算 (缺口若為正，溢出至額度)
+        df_log['Month'] = df_log['日期'].apply(robust_month_parser)
+        current_month_logs = df_log[df_log['Month'] == current_month].copy()
+        
+        # 確保數字格式
+        current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
+        current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
+        
+        # 計算已實現支出
+        total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
+        
+        # 計算「未入帳的報帳支出」 (這會增加透支)
+        # 條件：是報帳 + 狀態不等於已入帳
+        # 注意：我們假設 CSV 讀進來時 '已入帳' 欄位若為空則視為已入帳，若有寫 '未入帳' 才算
+        pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
+        pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
+
+    # 3. 調整後的缺口 (即時計算)
+    # 邏輯：靜態缺口 - 未入帳的支出 (因為這些錢雖然還沒扣，但已經算負債了)
+    # 負數 - 正數 = 更大的負數
+    current_gap = base_gap - pending_debt
+
+    # 4. 額度計算 (維持原邏輯：缺口若為正，溢出至額度)
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
@@ -181,9 +213,12 @@ if page == "💸 隨手記帳 (本月)":
     if remaining < 50 and remaining >= 0: rem_color = "red"
 
     with col1: st.markdown(make_card_html(f"{current_month}月本金", f"${base_budget}", "固定額度", "blue"), unsafe_allow_html=True)
-    with col2: st.markdown(make_card_html("本月花費", f"${total_expenses_only}", "不含未入帳", "gray"), unsafe_allow_html=True)
+    with col2: st.markdown(make_card_html("本月花費", f"${total_expenses_only}", "已扣除額度", "gray"), unsafe_allow_html=True)
     with col3: st.markdown(make_card_html("目前可用", f"${remaining}", rem_note, rem_color), unsafe_allow_html=True)
     with col4: st.markdown(make_card_html("總透支缺口", f"${current_gap}", gap_note, gap_color), unsafe_allow_html=True)
+
+    if pending_debt > 0:
+        st.caption(f"ℹ️ 目前有 ${pending_debt} 的報帳支出尚未入帳，已計入透支缺口。")
 
     if current_gap < 0: st.info(f"💡 額外收入正優先填補 ${abs(current_gap)} 缺口。")
     if remaining < 0: st.error("🚨 警告：本月已透支！")
@@ -204,14 +239,13 @@ if page == "💸 隨手記帳 (本月)":
             amount_input = c3.number_input("金額", min_value=1, step=1)
             
             is_reimbursable = "否"
-            status_init = "已入帳" # 預設狀態
             
             if txn_type == "💸 支出":
                 is_reimbursable = c4.radio("報帳?", ["否", "是"], horizontal=True)
                 if is_reimbursable == "是":
-                    st.caption("ℹ️ 報帳支出預設為 **「未入帳」** (先扣額度，撥款後加回)")
+                    st.caption("ℹ️ 報帳支出預設為 **「未入帳」**")
             else:
-                st.caption("ℹ️ 收入預設為 **「未入帳」** (拿到錢再手動切換，避免虛報)")
+                st.caption("ℹ️ 收入預設為 **「未入帳」**")
                 
             submitted = st.form_submit_button("✅ 送出交易", use_container_width=True)
 
@@ -219,22 +253,19 @@ if page == "💸 隨手記帳 (本月)":
                 if item_input and amount_input > 0:
                     date_str = date_input.strftime("%m/%d")
                     
-                    # --- 邏輯判斷 ---
                     if txn_type == "💸 支出":
                         if is_reimbursable == "是":
-                            actual_cost = amount_input # 未入帳：先扣額度 (Cost > 0)
+                            actual_cost = amount_input # 未入帳：先扣額度
                             status_val = "未入帳"
                         else:
                             actual_cost = amount_input
-                            status_val = "已入帳" # 一般支出直接算已完成
+                            status_val = "已入帳" 
                         
-                        # 寫入 (Cols: 日期, 項目, 金額, 是否報帳, 實際消耗, 已入帳)
                         ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
                         st.toast(f"💸 支出已記：${amount_input}")
                         
                     else:
-                        # 收入：預設未入帳 -> Cost 0 (不影響額度), 不動資產
-                        actual_cost = 0 
+                        actual_cost = 0 # 收入未入帳不影響額度
                         status_val = "未入帳"
                         ws_log.append_row([date_str, item_input, amount_input, "收入", actual_cost, status_val])
                         st.toast(f"💰 收入已記 (未入帳)：${amount_input}")
@@ -247,28 +278,29 @@ if page == "💸 隨手記帳 (本月)":
         st.markdown("### 📜 本月明細 (可展開修改狀態)")
         # 倒序顯示
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
-            # 取得該行在 Google Sheet 的真實列號 (row index + 5, 因為有4行標題且 index 從 0 開始)
-            # 但因為我們有篩選月份，index 可能不連續，最安全是讀取原本 df_log 的 index
             real_row_idx = index + 5 
 
             txn_class = "一般"
             if row['是否報帳'] == "是": txn_class = "報帳"
             elif row['是否報帳'] == "收入": txn_class = "收入"
             
-            # 讀取目前狀態 (容錯處理)
-            current_status = row.get('已入帳', '已入帳') # 舊資料預設已入帳
+            current_status = row.get('已入帳', '已入帳')
             if str(current_status).strip() == "": current_status = "已入帳"
             
-            # 顯示卡片
             with st.container():
-                # 樣式設定
                 cost = row['實際消耗']
-                color = "#95a5a6"
-                if txn_class == "收入": color = "#2ecc71" if current_status == "已入帳" else "#bdc3c7"
-                elif txn_class == "報帳": color = "#e67e22" if current_status == "未入帳" else "#95a5a6" # 未入帳顯眼
-                elif cost > 0: color = "#e74c3c"
+                color_hex = "#95a5a6" # 預設灰
                 
-                # 簡單顯示
+                if txn_class == "收入": 
+                    color_hex = "#2ecc71" if current_status == "已入帳" else "#bdc3c7"
+                elif txn_class == "報帳": 
+                    color_hex = "#e67e22" if current_status == "未入帳" else "#95a5a6"
+                elif cost > 0: 
+                    color_hex = "#e74c3c"
+                
+                # 使用 HTML span 來解決顏色顯示錯誤
+                amt_html = f'<span style="color: {color_hex}; font-weight: bold;">${row["金額"]}</span>'
+
                 col_info, col_amt, col_action = st.columns([3, 1.5, 1.5])
                 
                 with col_info:
@@ -277,44 +309,34 @@ if page == "💸 隨手記帳 (本月)":
                         st.caption(f"類型: {txn_class} | 狀態: {current_status}")
                 
                 with col_amt:
-                    st.markdown(f":{color}[${row['金額']}]")
+                    st.markdown(amt_html, unsafe_allow_html=True)
                 
                 with col_action:
-                    # 只針對「報帳」和「收入」顯示切換按鈕
                     if txn_class in ["報帳", "收入"]:
                         is_cleared = (current_status == "已入帳")
-                        # Toggle 按鈕
-                        new_state = st.toggle("已入帳?", value=is_cleared, key=f"tg_{index}")
+                        new_state = st.toggle("已入帳?", value=is_cleared, key=f"tg_{real_row_idx}") # 使用真實 index 當 key 避免衝突
                         
-                        # 狀態改變觸發邏輯
                         if new_state != is_cleared:
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
                             
-                            # 1. 計算新的實際消耗
                             if txn_class == "報帳":
-                                # 報帳：未入帳=扣額度(Amount), 已入帳=加回(0)
                                 new_actual_cost = row['金額'] if not new_state else 0
                                 
                             elif txn_class == "收入":
-                                # 收入：未入帳=0, 已入帳=增加額度(-Amount)
                                 new_actual_cost = -row['金額'] if new_state else 0
-                                
-                                # 連動資產 (收入專屬)
                                 if ws_assets:
                                     try:
                                         all_assets = ws_assets.get_all_records()
                                         for ai, arow in enumerate(all_assets):
                                             if arow.get('資產項目') == '台幣活存':
                                                 curr_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
-                                                # 如果變成已入帳 -> 加錢; 變成未入帳 -> 扣錢
                                                 change = row['金額'] if new_state else -row['金額']
                                                 ws_assets.update_cell(ai + 2, 2, curr_val + change)
                                                 st.toast(f"💰 資產更新: {curr_val} -> {curr_val + change}")
                                                 break
                                     except: pass
 
-                            # 2. 更新 Google Sheet (Col 5: Actual Cost, Col 6: Status)
                             if ws_log:
                                 ws_log.update_cell(real_row_idx, 5, new_actual_cost)
                                 ws_log.update_cell(real_row_idx, 6, new_status_str)
@@ -471,7 +493,14 @@ elif page == "🗓️ 歷史帳本回顧":
             for index, row in history_df.iloc[::-1].iterrows():
                 with st.container():
                     cost = row['實際消耗']
-                    color, prefix = ("#e74c3c", "-$") if cost > 0 else (("#2ecc71", "+$") if cost < 0 else ("#95a5a6", "$"))
-                    st.markdown(f"""<div class="list-item"><div><span style="color:#888;font-size:0.8em;">{row['日期']}</span><br><b>{row['項目']}</b></div><div style="text-align:right;"><span style="color:{color};font-weight:bold;">{prefix}{row['金額']}</span></div></div>""", unsafe_allow_html=True)
+                    color_hex = "#e74c3c" if cost > 0 else ("#2ecc71" if cost < 0 else "#95a5a6")
+                    prefix = "-$" if cost > 0 else ("+$" if cost < 0 else "$")
+                    
+                    st.markdown(f"""
+                    <div class="list-item">
+                        <div><span style="color:#888;font-size:0.8em;">{row['日期']}</span><br><b>{row['項目']}</b></div>
+                        <div style="text-align:right;"><span style="color:{color_hex};font-weight:bold;">{prefix}{row['金額']}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
         else: st.info("目前還沒有歷史資料。")
     else: st.info("日記帳是空的。")
