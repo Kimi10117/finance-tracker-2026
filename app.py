@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (v9.2 防彈版) ---
+# --- CSS 美化 (v9.3) ---
 st.markdown("""
 <style>
     .block-container {
@@ -99,7 +99,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v9.2 (KeyError Fix)")
+st.sidebar.caption("宇毛的記帳本 v9.3 (Gap Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -142,12 +142,11 @@ if page == "💸 隨手記帳 (本月)":
     df_assets, ws_assets = get_data("資產總覽表")
     df_status, _ = get_data("現況資金檢核")
 
-    # --- 🐞 KeyError 修復關鍵：自動補欄位 ---
+    # 補欄位防呆
     if not df_log.empty and '已入帳' not in df_log.columns:
-        # 如果 Google Sheet 沒標題，Pandas 讀不到，我們手動補上預設值
-        df_log['已入帳'] = '已入帳' # 假設舊資料都是已入帳
+        df_log['已入帳'] = '已入帳'
 
-    # 1. 取得靜態透支缺口
+    # 1. 取得靜態透支缺口 (從 CSV)
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         base_gap = int(float(gap_str))
@@ -157,41 +156,43 @@ if page == "💸 隨手記帳 (本月)":
     # 2. 計算本月數據
     total_expenses_only = 0
     pending_debt = 0
+    cleared_income_sum = 0 # 新增：已入帳的收入總和
     current_month_logs = pd.DataFrame()
     
     if not df_log.empty:
-        # 強力日期解析 (防止資料消失)
+        # 強力日期解析
         def robust_month_parser(x):
-            try:
-                # 優先嘗試 M/D 格式
-                return pd.to_datetime(str(x), format='%m/%d').month
+            try: return pd.to_datetime(str(x), format='%m/%d').month
             except:
-                try:
-                    # 再嘗試自動偵測
-                    return pd.to_datetime(str(x)).month
-                except:
-                    # 真的讀不到，回傳當前月份 (寧可錯殺不可放過)
+                try: return pd.to_datetime(str(x)).month
+                except: 
                     if str(x).strip() == "": return 0
                     return current_month 
 
         df_log['Month'] = df_log['日期'].apply(robust_month_parser)
         current_month_logs = df_log[df_log['Month'] == current_month].copy()
         
-        # 確保數字格式
         current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
         current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
         
-        # 計算已實現支出
+        # A. 計算已實現支出 (實際消耗 > 0)
         total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
         
-        # 計算「未入帳的報帳支出」 (增加負債)
+        # B. 計算「未入帳的報帳支出」 (增加負債)
         pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
         pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
 
-    # 3. 調整後的缺口 (即時計算)
-    current_gap = base_gap - pending_debt
+        # C. 計算「已入帳的收入」 (填補缺口)
+        # 邏輯：收入的「實際消耗」是負數，所以取絕對值加總
+        # 或者直接篩選類型=收入且狀態=已入帳
+        # 這裡我們用實際消耗 < 0 來抓取最準確，因為這代表程式已經確認它是有效收入
+        cleared_income_sum = abs(int(current_month_logs[current_month_logs['實際消耗'] < 0]['實際消耗'].sum()))
 
-    # 4. 額度計算
+    # 3. 調整後的缺口 (填坑邏輯修復)
+    # 公式：原始缺口 - 未入帳支出 + 已入帳收入
+    current_gap = base_gap - pending_debt + cleared_income_sum
+
+    # 4. 額度計算 (溢出才加到額度)
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
@@ -274,10 +275,8 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 📜 明細列表 ---
     if not current_month_logs.empty:
-        st.markdown("### 📜 本月明細 (可展開修改狀態)")
+        st.markdown("### 📜 本月明細") # 文字修正：移除 (可展開修改狀態)
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
-            # 取得真實列號 (如果你之後有刪除過資料，這裡可能需要更精準的定位，目前暫用 index+5)
-            # 建議之後若資料量大，改用 Cell Search 定位
             real_row_idx = index + 5 
 
             txn_class = "一般"
@@ -313,7 +312,6 @@ if page == "💸 隨手記帳 (本月)":
                 with col_action:
                     if txn_class in ["報帳", "收入"]:
                         is_cleared = (current_status == "已入帳")
-                        # 這裡使用 tg_{index} 確保 key 唯一
                         new_state = st.toggle("已入帳?", value=is_cleared, key=f"tg_{index}")
                         
                         if new_state != is_cleared:
