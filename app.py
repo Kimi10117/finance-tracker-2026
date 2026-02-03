@@ -3,11 +3,12 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import time # 用於刪除後的延遲重整
 
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 美化 (v7.1 Debug Fix) ---
+# --- CSS 美化 (v8.0 購物管理版) ---
 st.markdown("""
 <style>
     .block-container {
@@ -85,6 +86,14 @@ st.markdown("""
         height: 100%;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
+    
+    /* 刪除按鈕區塊 */
+    .delete-section {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px dashed #eee;
+        text-align: right;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -117,7 +126,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v7.1 (Debug Fix)")
+st.sidebar.caption("宇毛的記帳本 v8.0 (Shopping Manager)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -160,14 +169,12 @@ if page == "💸 隨手記帳 (本月)":
     df_assets, ws_assets = get_data("資產總覽表")
     df_status, _ = get_data("現況資金檢核")
 
-    # 取得「透支缺口」
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         current_gap = int(float(gap_str))
     except:
         current_gap = -9999
 
-    # 計算本月「純支出」
     total_expenses_only = 0
     current_month_logs = pd.DataFrame()
     
@@ -176,15 +183,12 @@ if page == "💸 隨手記帳 (本月)":
         df_log['Month'] = df_log['Month'].fillna(0).astype(int)
         
         current_month_logs = df_log[df_log['Month'] == current_month].copy()
-        
-        # 只計算「正數」的實際消耗
         current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
         total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
 
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
-    # --- 頂部儀表板 ---
     col1, col2, col3, col4 = st.columns(4)
     
     if current_gap < 0:
@@ -222,7 +226,6 @@ if page == "💸 隨手記帳 (本月)":
 
     st.markdown("---")
 
-    # --- 交易輸入區 ---
     with st.container():
         st.write("📝 **新增交易**")
         txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True, label_visibility="collapsed")
@@ -271,11 +274,9 @@ if page == "💸 隨手記帳 (本月)":
                             except:
                                 st.error("資產連動失敗")
                     
-                    import time
                     time.sleep(1)
                     st.rerun()
 
-    # --- 明細列表 ---
     if not current_month_logs.empty:
         st.markdown("### 📜 本月明細")
         for index, row in current_month_logs.tail(5).iloc[::-1].iterrows():
@@ -296,29 +297,57 @@ if page == "💸 隨手記帳 (本月)":
                 """, unsafe_allow_html=True)
 
 # ==========================================
-# 🛍️ 頁面 2：購物冷靜清單 (欄位名稱修正)
+# 🛍️ 頁面 2：購物冷靜清單 (總覽 + 刪除系統)
 # ==========================================
 elif page == "🛍️ 購物冷靜清單":
     st.subheader("🧊 購物冷靜清單")
     df_shop, ws_shop = get_data("購物冷靜清單")
 
-    with st.expander("➕ 新增願望", expanded=False):
+    # --- 1. 總覽模組 (Dashboard) ---
+    if not df_shop.empty:
+        # 計算總金額
+        total_items = len(df_shop)
+        total_price = 0
+        
+        # 遍歷資料計算總額 (處理逗號與欄位)
+        for index, row in df_shop.iterrows():
+            price_raw = row.get('預估價格', row.get('預估價格 (C)', 0))
+            try:
+                p = int(str(price_raw).replace(',', ''))
+            except:
+                p = 0
+            total_price += p
+        
+        # 顯示總覽卡片
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown(make_card_html("清單總項數", f"{total_items} 項", "慾望清單", "blue"), unsafe_allow_html=True)
+        with d2:
+            st.markdown(make_card_html("預估總金額", f"${total_price:,}", "需存錢目標", "orange"), unsafe_allow_html=True)
+    else:
+        st.info("目前清單是空的，太棒了！")
+
+    st.markdown("---")
+
+    # --- 2. 新增區 ---
+    with st.expander("➕ 新增願望 (Add Item)", expanded=False):
         with st.form("shopping_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             s_name = c1.text_input("物品")
             s_price = c2.number_input("價格", min_value=0)
             if st.form_submit_button("加入"):
                 if ws_shop:
-                    # 寫入預設值
                     ws_shop.append_row([datetime.now().strftime("%m/%d"), s_name, s_price, "3", "2026/07/01", "延後", ""])
+                    st.success("已加入清單！")
+                    time.sleep(1)
                     st.rerun()
 
+    # --- 3. 清單與刪除系統 ---
     if not df_shop.empty:
+        st.markdown("### 📦 願望清單明細")
+        # 使用 enumerate 來獲取 index，以便刪除對應行
         for i, row in df_shop.iterrows():
-            # 優先抓取乾淨的欄位名稱，如果沒有才抓帶括號的
             item_name = row.get('物品名稱', row.get('物品名稱 (B)', '未命名'))
-            
-            # 價格處理：轉字串 -> 去逗號 -> 轉數字
             price_raw = row.get('預估價格', row.get('預估價格 (C)', 0))
             try:
                 price_val = int(str(price_raw).replace(',', ''))
@@ -327,17 +356,31 @@ elif page == "🛍️ 購物冷靜清單":
                 
             decision = row.get('最終決策', row.get('最終決策 (G)', '考慮中'))
             note = row.get('備註', row.get('理由與備註 (H)', '無'))
-
             status_color = "red" if decision == "延後" else "green"
             
+            # 卡片本體
             with st.expander(f"🛒 **{item_name}** - ${price_val:,}"):
-                st.markdown(f"**決策：** :{status_color}[{decision}]")
-                st.info(f"💡 {note}")
-    else:
-        st.info("清單是空的！")
+                c_info, c_action = st.columns([3, 1])
+                
+                with c_info:
+                    st.markdown(f"**決策：** :{status_color}[{decision}]")
+                    st.info(f"💡 {note}")
+                    
+                with c_action:
+                    st.write("") # 排版空格
+                    st.write("") 
+                    # 🔴 刪除按鈕
+                    # key=f"del_{i}" 確保每個按鈕唯一
+                    if st.button("🗑️ 刪除", key=f"del_{i}", type="primary", use_container_width=True):
+                        if ws_shop:
+                            # gspread 刪除列 (index + 2 因為標題佔 1 列，且 gspread 從 1 開始)
+                            ws_shop.delete_rows(i + 2)
+                            st.toast(f"✅ 已刪除：{item_name}")
+                            time.sleep(1) # 讓使用者看到訊息
+                            st.rerun() # 強制重整頁面
 
 # ==========================================
-# 📊 頁面 3：資產與收支 (過濾器修正)
+# 📊 頁面 3：資產與收支
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
@@ -374,15 +417,9 @@ elif page == "📊 資產與收支":
             item = str(row.get('項目 (A)', row.get('項目', ''))).strip()
             amt_raw = row.get('金額 (B)', row.get('金額', ''))
             
-            # --- 過濾器 Fix ---
-            # 1. 如果項目是空的，跳過
-            if not item:
-                continue
-            # 2. 如果是標題列 (例如 "固定支出")，通常金額是空的，跳過
-            if str(amt_raw).strip() == '' or pd.isna(amt_raw):
-                continue
+            if not item: continue
+            if str(amt_raw).strip() == '' or pd.isna(amt_raw): continue
             
-            # 排除總結列
             if "總計" not in item and "剩餘" not in item:
                 icon = "🔴" if str(amt_raw).startswith('-') else "🟢"
                 st.markdown(f"**{icon} {item}**: ${amt_raw}")
@@ -407,7 +444,7 @@ elif page == "📊 資產與收支":
             pass
 
 # ==========================================
-# 📅 頁面 4：未來推估 (四月跑版修正)
+# 📅 頁面 4：未來推估
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
@@ -415,16 +452,11 @@ elif page == "📅 未來推估":
     df_future, _ = get_data("未來四個月推估")
     
     if not df_future.empty:
-        # 過濾掉 '初始狀態'，只留月份
         target_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
-        
         cols = st.columns(3)
         
-        # --- 跑版修正 Fix ---
-        # 使用 enumerate 來確保計數器 i 是連續的 (0, 1, 2...)
         for i, (index, row) in enumerate(target_df.iterrows()):
-            col = cols[i % 3] # 這樣就能準確地 0, 1, 2 循環分配
-            
+            col = cols[i % 3]
             month_name = str(row['月份 (A)'])
             est_bal = row['預估實際餘額 (D)']
             target_bal = row['目標應有餘額 (E)']
@@ -443,14 +475,13 @@ elif page == "📅 未來推估":
             last_row = df_future.iloc[-1]
             last_month = last_row['月份 (A)']
             last_val = last_row['預估實際餘額 (D)']
-            
             st.markdown("---")
             st.markdown(make_card_html(f"🎉 {last_month} 最終預估結餘", f"${last_val}", "財務自由的起點", "purple"), unsafe_allow_html=True)
         except:
             pass
 
 # ==========================================
-# 🗓️ 頁面 5：歷史帳本回顧 (功能回歸)
+# 🗓️ 頁面 5：歷史帳本回顧
 # ==========================================
 elif page == "🗓️ 歷史帳本回顧":
     st.subheader("🗓️ 歷史帳本查詢")
@@ -471,7 +502,6 @@ elif page == "🗓️ 歷史帳本回顧":
             history_df['實際消耗'] = pd.to_numeric(history_df['實際消耗'], errors='coerce').fillna(0)
             month_total = int(history_df['實際消耗'].sum())
             
-            # 簡單回顧卡片
             st.markdown(make_card_html(f"{selected_month}月 淨支出", f"${month_total}", "含收入抵銷後", "gray"), unsafe_allow_html=True)
             
             st.markdown("### 📜 明細回顧")
