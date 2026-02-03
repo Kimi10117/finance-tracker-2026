@@ -8,19 +8,18 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v11.2 Final Fix) ---
+# --- CSS 極致美化 (v12.0 Dark Mode Fix) ---
 st.markdown("""
 <style>
-    /* 全局背景微調 */
+    /* 1. 全局背景與變數適配 */
     .stApp {
-        background-color: #f8f9fa;
+        background-color: var(--background-color);
+        color: var(--text-color);
     }
     
-    /* 隱藏預設元件 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* 調整頂部間距，避免被選單遮擋 */
     .block-container {
         padding-top: 3.5rem;
         padding-bottom: 5rem;
@@ -28,14 +27,14 @@ st.markdown("""
         padding-right: 1rem;
     }
 
-    /* === 現代化卡片設計 === */
+    /* === 現代化卡片設計 (支援 Dark Mode) === */
     .custom-card {
-        background-color: white;
+        background-color: var(--secondary-background-color); /* 自動適應深淺 */
         padding: 15px;
         border-radius: 16px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.04);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* 稍微加深陰影以適應深色 */
         margin-bottom: 12px;
-        border: 1px solid rgba(0,0,0,0.02);
+        border: 1px solid rgba(128, 128, 128, 0.1); /* 微弱邊框 */
         transition: transform 0.2s ease;
     }
     .custom-card:active {
@@ -44,7 +43,8 @@ st.markdown("""
     
     .card-title {
         font-size: 13px;
-        color: #8898aa;
+        color: var(--text-color); /* 自動變色 */
+        opacity: 0.7; /* 讓標題稍微淡一點 */
         font-weight: 600;
         letter-spacing: 0.5px;
         text-transform: uppercase;
@@ -54,7 +54,7 @@ st.markdown("""
     .card-value {
         font-size: 26px;
         font-weight: 800;
-        color: #32325d;
+        color: var(--text-color); /* 自動變色 */
         letter-spacing: -0.5px;
         line-height: 1.2;
     }
@@ -72,7 +72,7 @@ st.markdown("""
     .progress-bg {
         width: 100%;
         height: 8px;
-        background-color: #e9ecef;
+        background-color: rgba(128, 128, 128, 0.2); /* 半透明灰，深淺皆宜 */
         border-radius: 4px;
         margin-top: 8px;
         overflow: hidden;
@@ -85,30 +85,30 @@ st.markdown("""
 
     /* === 資產卡片 === */
     .asset-card {
-        background: white;
+        background-color: var(--secondary-background-color);
         padding: 16px;
         border-radius: 16px;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
-        border: 1px solid #f0f0f0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border: 1px solid rgba(128, 128, 128, 0.1);
     }
-    .asset-val { font-size: 20px; font-weight: 700; color: #32325d; }
-    .asset-lbl { font-size: 12px; color: #8898aa; font-weight: 600; margin-top: 4px; }
+    .asset-val { font-size: 20px; font-weight: 700; color: var(--text-color); }
+    .asset-lbl { font-size: 12px; color: var(--text-color); opacity: 0.7; font-weight: 600; margin-top: 4px; }
 
     /* === 交易明細優化 === */
     .list-item {
-        background-color: white;
+        background-color: var(--secondary-background-color);
         padding: 14px;
         border-radius: 12px;
         margin-bottom: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-        border: 1px solid #f6f9fc;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid rgba(128, 128, 128, 0.1);
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
     
-    /* 膠囊標籤 */
+    /* 膠囊標籤 (改用半透明背景) */
     .badge {
         display: inline-block;
         padding: 3px 8px;
@@ -117,29 +117,42 @@ st.markdown("""
         border-radius: 12px;
         margin-top: 4px;
     }
-    .badge-gray { background: #f6f9fc; color: #8898aa; }
-    .badge-orange { background: #fff5f5; color: #fb6340; }
-    .badge-green { background: #e6fffa; color: #2dce89; }
+    /* 使用 rgba 確保在深色背景也不會太亮刺眼 */
+    .badge-gray { background: rgba(136, 152, 170, 0.2); color: var(--text-color); opacity: 0.8; }
+    .badge-orange { background: rgba(251, 99, 64, 0.15); color: #fb6340; }
+    .badge-green { background: rgba(45, 206, 137, 0.15); color: #2dce89; }
 
     /* === 底部總結區 === */
     .summary-box {
-        background: linear-gradient(135deg, #172b4d 0%, #1a174d 100%);
-        color: white;
+        /* 使用漸層色，深色模式下依然保持質感 */
+        background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); 
+        color: white; /* 強制白字，因為背景是深色 */
         padding: 24px;
         border-radius: 20px;
         margin-top: 24px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        box-shadow: 0 10px 20px rgba(23, 43, 77, 0.2);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     }
     
-    /* === 讓 Radio Button 變成按鈕樣式 === */
+    /* === 未來推估卡片 === */
+    .future-card {
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        padding: 10px;
+        border-radius: 8px;
+        text-align: center;
+        height: 100%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* === Radio Button 優化 === */
     div[role="radiogroup"] {
-        background-color: white;
+        background-color: var(--secondary-background-color);
         padding: 5px;
         border-radius: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid rgba(128, 128, 128, 0.1);
         display: flex;
         justify-content: space-between;
     }
@@ -151,12 +164,12 @@ st.markdown("""
         padding: 8px;
         border-radius: 8px;
         transition: all 0.2s;
+        color: var(--text-color);
     }
     div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #f6f9fc;
+        background-color: rgba(128, 128, 128, 0.1);
         font-weight: bold;
-        color: #5e72e4;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: #5e72e4; /* 藍色高亮 */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -190,7 +203,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v11.2 (UI Fix)")
+st.sidebar.caption("宇毛的記帳本 v12.0 (Dark Mode)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -201,27 +214,33 @@ def get_data(worksheet_name, head=1):
     except:
         return pd.DataFrame(), None
 
-# --- UI 元件生成器 (修復版) ---
+# --- UI 元件生成器 (Dark Mode Fix) ---
 
 def make_modern_card(title, value, note, color_theme, progress=None):
-    # 定義主題顏色
+    # 修改顏色策略：只定義強調色，主色調跟隨系統
+    # light 屬性移除，改用 transparent 或 css variable
     themes = {
-        "blue":   {"text": "#5e72e4", "light": "#e8f4f8"},
-        "red":    {"text": "#f5365c", "light": "#fdedec"},
-        "green":  {"text": "#2dce89", "light": "#eafaf1"},
-        "orange": {"text": "#fb6340", "light": "#fef5e7"},
-        "gray":   {"text": "#8898aa", "light": "#f6f9fc"},
-        "dark":   {"text": "#32325d", "light": "#e9ecef"}
+        "blue":   "#5e72e4",
+        "red":    "#f5365c",
+        "green":  "#2dce89",
+        "orange": "#fb6340",
+        "gray":   "var(--text-color)", # 自動適應
+        "dark":   "var(--text-color)",
+        "purple": "#8e44ad"
     }
-    t = themes.get(color_theme, themes["dark"])
+    accent_color = themes.get(color_theme, "var(--text-color)")
     
-    # 2. 進度條 HTML 修復：移除所有換行與縮排，避免被視為程式碼
+    # 修正：針對 Note 文字顏色，如果是 gray/dark，讓它稍微透明一點，而不是全黑/全白
+    note_style = f"color: {accent_color};"
+    if color_theme in ["gray", "dark"]:
+        note_style = "color: var(--text-color); opacity: 0.7;"
+
     progress_html = ""
     if progress is not None:
         try:
             pct = min(max(float(progress), 0.0), 1.0) * 100
-            # 關鍵修正：單行 HTML，無縮排
-            progress_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {t["text"]};"></div></div>'
+            # 使用 accent_color 作為進度條顏色
+            progress_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {accent_color};"></div></div>'
         except:
             progress_html = ""
         
@@ -229,7 +248,7 @@ def make_modern_card(title, value, note, color_theme, progress=None):
     <div class="custom-card">
         <div class="card-title">{title}</div>
         <div class="card-value">{value}</div>
-        <div class="card-note" style="color: {t['text']};">
+        <div class="card-note" style="{note_style}">
             {note}
         </div>
         {progress_html}
@@ -254,14 +273,14 @@ if page == "💸 隨手記帳 (本月)":
 
     if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-    # 1. 取得靜態缺口 & 計算進度
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         base_gap_static = int(float(gap_str))
+        max_gap_ref = 3000 
     except:
         base_gap_static = -9999
+        max_gap_ref = 3000
 
-    # 2. 計算本月動態數據
     total_expenses_only = 0
     pending_debt = 0
     cleared_income_sum = 0
@@ -282,18 +301,14 @@ if page == "💸 隨手記帳 (本月)":
         current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
         
         total_expenses_only = int(current_month_logs[current_month_logs['實際消耗'] > 0]['實際消耗'].sum())
-        
         pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
         pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
-        
         cleared_income_sum = abs(int(current_month_logs[current_month_logs['實際消耗'] < 0]['實際消耗'].sum()))
 
-    # 3. 核心數值計算
     current_gap = base_gap_static - pending_debt + cleared_income_sum
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
-    # --- 儀表板區域 ---
     col1, col2, col3, col4 = st.columns(4)
     
     gap_progress = 0.0
@@ -333,7 +348,6 @@ if page == "💸 隨手記帳 (本月)":
 
     st.markdown("---")
 
-    # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
     txn_type = st.radio("類型", ["💸 支出 (花錢)", "💰 收入 (賺錢)"], horizontal=True, label_visibility="collapsed")
     
@@ -362,7 +376,6 @@ if page == "💸 隨手記帳 (本月)":
                         actual_cost = amount_input; status_val = "未入帳"
                     else:
                         actual_cost = amount_input; status_val = "已入帳"
-                    
                     ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
                     
                     if ws_assets:
@@ -384,7 +397,6 @@ if page == "💸 隨手記帳 (本月)":
                 time.sleep(1)
                 st.rerun()
 
-    # --- 明細列表 ---
     if not current_month_logs.empty:
         st.markdown("### 📜 本月明細")
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
@@ -394,31 +406,30 @@ if page == "💸 隨手記帳 (本月)":
             elif row['是否報帳'] == "收入": txn_class = "收入"
             
             status = str(row.get('已入帳', '已入帳')).strip() or "已入帳"
-            cost = row['實際消耗']
             
             if txn_class == "收入":
                 badge_html = make_badge(status, "green" if status == "已入帳" else "gray")
-                color = "#2dce89" if status == "已入帳" else "#adb5bd"
+                color = "#2dce89" if status == "已入帳" else "var(--text-color)"
                 prefix = "+$"
             elif txn_class == "報帳":
                 badge_html = make_badge(status, "gray" if status == "已入帳" else "orange")
-                color = "#fb6340" if status == "未入帳" else "#adb5bd"
+                color = "#fb6340" if status == "未入帳" else "var(--text-color)"
                 prefix = "$"
             else: 
                 badge_html = ""
                 color = "#f5365c"
                 prefix = "-$"
 
-            amt_html = f'<span style="color: {color}; font-weight: 800; font-size: 1.1em;">{prefix}{row["金額"]}</span>'
+            amt_html = f'<span style="color: {color}; font-weight: 800; font-size: 1.1em; opacity: {0.5 if status=="未入帳" and txn_class=="收入" else 1.0};">{prefix}{row["金額"]}</span>'
 
             with st.container():
                 col_info, col_amt, col_action = st.columns([3, 1.5, 1])
                 with col_info:
                     st.markdown(f"""
                     <div style="line-height:1.4;">
-                        <span style="font-size:0.85em; color:#8898aa;">{row['日期']}</span><br>
-                        <span style="font-weight:600; color:#32325d;">{row['項目']}</span>
-                        <br>{badge_html} <span style="font-size:0.8em; color:#adb5bd;">{txn_class if txn_class != '一般' else ''}</span>
+                        <span style="font-size:0.85em; opacity: 0.7;">{row['日期']}</span><br>
+                        <span style="font-weight:600;">{row['項目']}</span>
+                        <br>{badge_html} <span style="font-size:0.8em; opacity: 0.6;">{txn_class if txn_class != '一般' else ''}</span>
                     </div>
                     """, unsafe_allow_html=True)
                 with col_amt:
@@ -552,11 +563,15 @@ elif page == "📊 資產與收支":
         try:
             exp = df_model[df_model['項目 (A)'].astype(str).str.contains("支出總計")]['金額 (B)'].values[0]
             bal = df_model[df_model['項目 (A)'].astype(str).str.contains("每月淨剩餘")]['金額 (B)'].values[0]
-            st.markdown(f"""<div class="summary-box"><div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div><div style="text-align:right;"><div class="summary-title">固定餘額</div><div class="summary-val">${bal}</div></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="summary-box">
+                <div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div>
+                <div style="text-align:right;"><div class="summary-title">固定餘額</div><div class="summary-val">${bal}</div></div>
+            </div>""", unsafe_allow_html=True)
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估
+# 📅 頁面 4 & 5：維持不變
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
@@ -569,7 +584,7 @@ elif page == "📅 未來推估":
             month = str(row['月份 (A)'])
             est = row['預估實際餘額 (D)']
             tgt = row['目標應有餘額 (E)']
-            with col: st.markdown(f"""<div class="asset-card" style="text-align:center;"><div style="font-weight:bold;margin-bottom:5px;">{month}</div><div style="font-size:12px;color:#888;">目標: ${tgt}</div><div style="font-size:20px;font-weight:bold;color:#5e72e4;">${est}</div></div>""", unsafe_allow_html=True)
+            with col: st.markdown(f"""<div class="asset-card" style="text-align:center;"><div style="font-weight:bold;margin-bottom:5px;color:var(--text-color);">{month}</div><div style="font-size:12px;opacity:0.7;">目標: ${tgt}</div><div style="font-size:20px;font-weight:bold;color:#5e72e4;">${est}</div></div>""", unsafe_allow_html=True)
             st.write("") 
         try:
             last = df_future.iloc[-1]
@@ -577,9 +592,6 @@ elif page == "📅 未來推估":
             st.markdown(make_modern_card(f"🎉 {last['月份 (A)']} 最終預估", f"${last['預估實際餘額 (D)']}", "財務自由起點", "purple"), unsafe_allow_html=True)
         except: pass
 
-# ==========================================
-# 🗓️ 頁面 5：歷史帳本回顧
-# ==========================================
 elif page == "🗓️ 歷史帳本回顧":
     st.subheader("🗓️ 歷史帳本查詢")
     df_log, _ = get_data("流動支出日記帳", head=4)
@@ -602,7 +614,7 @@ elif page == "🗓️ 歷史帳本回顧":
                 color = "#f5365c" if cost > 0 else ("#2dce89" if cost < 0 else "#adb5bd")
                 st.markdown(f"""
                 <div class="list-item">
-                    <div><span style="color:#8898aa;font-size:0.85em;">{row['日期']}</span><br><b>{row['項目']}</b></div>
+                    <div><span style="color:var(--text-color);opacity:0.7;font-size:0.85em;">{row['日期']}</span><br><b style="color:var(--text-color);">{row['項目']}</b></div>
                     <div style="text-align:right;"><span style="color:{color};font-weight:bold;">${row['金額']}</span></div>
                 </div>""", unsafe_allow_html=True)
         else: st.info("無資料")
