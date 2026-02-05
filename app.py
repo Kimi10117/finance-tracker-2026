@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v17.1 Sidebar Routine) ---
+# --- CSS 極致美化 (v18.0 Logic Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -21,7 +21,7 @@ st.markdown("""
     footer {visibility: hidden;}
     
     .block-container {
-        padding-top: 2rem; /* 稍微縮小頂部間距，讓畫面更緊湊 */
+        padding-top: 2rem;
         padding-bottom: 5rem;
         padding-left: 1rem;
         padding-right: 1rem;
@@ -237,7 +237,7 @@ def make_badge(text, style="gray"):
     return f'<span class="badge badge-{style}">{text}</span>'
 
 # ==========================================
-# 🚀 準備資料 (提早讀取以便側邊欄使用)
+# 🚀 準備資料
 # ==========================================
 now_dt = datetime.now()
 current_month = now_dt.month
@@ -352,17 +352,28 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
 
 # 收集待辦事項
 pending_tasks = []
+
+# 1. 薪水 (5號)
 if current_day >= 5 and not check_logged("固定收入"):
     pending_tasks.append({"name": "📥 入帳薪水 ($3900)", "type": "fixed_in", "amt": 3900, "desc": "固定收入 (薪水)"})
+
+# 2. 定存 (10號)
 if current_day >= 10 and not check_logged("定存扣款"):
     pending_tasks.append({"name": "🏦 轉存定存 ($1000)", "type": "transfer", "amt": 1000, "desc": "定存扣款"})
+
+# 3. 固定支出 (10號, 22號)
 if current_day >= 10 and not check_logged("電信費"):
     pending_tasks.append({"name": "📱 繳電信費 ($499)", "type": "fixed_out", "amt": 499, "desc": "電信費"})
 if current_day >= 22 and not check_logged("YT Premium"):
     pending_tasks.append({"name": "▶️ 繳 YT Premium ($119)", "type": "fixed_out", "amt": 119, "desc": "YT Premium"})
+
+# 4. 小雪 (6號, 直到2026/7)
 if (current_year < 2026 or (current_year == 2026 and current_month < 7)) and current_day >= 6 and not check_logged("小雪"):
     pending_tasks.append({"name": "❄️ 繳小雪會員 ($75)", "type": "fixed_out", "amt": 75, "desc": "YT會員(小雪)"})
-if current_gap < 0 and not check_logged("自我分期"):
+
+# 5. 自我分期還債 (5號, 直到2026/7)
+# 修正邏輯：跟隨薪水日(5號)，且持續到 2026/7 結束
+if (current_year < 2026 or (current_year == 2026 and current_month <= 7)) and current_day >= 5 and not check_logged("自我分期"):
     pending_tasks.append({"name": "💳 自我分期還債 ($2110)", "type": "fixed_out", "amt": 2110, "desc": "自我分期(還債)"})
 
 # 顯示側邊欄通知
