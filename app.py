@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v13.0 Advance Payment) ---
+# --- CSS 極致美化 (v13.1 Layout Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -49,6 +49,9 @@ st.markdown("""
         letter-spacing: 0.5px;
         text-transform: uppercase;
         margin-bottom: 6px;
+        white-space: nowrap; /* 強制標題不換行 */
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
     .card-value {
@@ -57,6 +60,7 @@ st.markdown("""
         color: var(--text-color);
         letter-spacing: -0.5px;
         line-height: 1.2;
+        white-space: nowrap; /* 強制數值不換行 */
     }
     
     .card-note {
@@ -66,6 +70,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 4px;
+        white-space: nowrap; /* 強制註解不換行 */
     }
 
     /* === 進度條樣式 === */
@@ -92,8 +97,8 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         border: 1px solid rgba(128, 128, 128, 0.1);
     }
-    .asset-val { font-size: 20px; font-weight: 700; color: var(--text-color); }
-    .asset-lbl { font-size: 12px; color: var(--text-color); opacity: 0.7; font-weight: 600; margin-top: 4px; }
+    .asset-val { font-size: 20px; font-weight: 700; color: var(--text-color); white-space: nowrap; }
+    .asset-lbl { font-size: 12px; color: var(--text-color); opacity: 0.7; font-weight: 600; margin-top: 4px; white-space: nowrap; }
 
     /* === 交易明細優化 === */
     .list-item {
@@ -116,6 +121,7 @@ st.markdown("""
         font-weight: 700;
         border-radius: 12px;
         margin-top: 4px;
+        white-space: nowrap; /* 標籤不換行 */
     }
     .badge-gray { background: rgba(136, 152, 170, 0.2); color: var(--text-color); opacity: 0.8; }
     .badge-orange { background: rgba(251, 99, 64, 0.15); color: #fb6340; }
@@ -146,29 +152,38 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* === Radio Button 優化 === */
+    /* === Radio Button 優化 (關鍵修復) === */
     div[role="radiogroup"] {
         background-color: var(--secondary-background-color);
-        padding: 5px;
+        padding: 4px;
         border-radius: 12px;
         border: 1px solid rgba(128, 128, 128, 0.1);
         display: flex;
-        justify-content: space-between;
+        flex-wrap: nowrap; /* 禁止換行 */
+        overflow: hidden;
     }
     div[role="radiogroup"] label {
         flex: 1;
         text-align: center;
         background-color: transparent;
         border: none;
-        padding: 8px;
+        padding: 8px 4px; /* 減少左右內距 */
         border-radius: 8px;
         transition: all 0.2s;
         color: var(--text-color);
+        white-space: nowrap; /* 文字禁止換行 */
+        overflow: hidden;
+        text-overflow: ellipsis; /* 太長顯示... */
+        font-size: 14px; /* 稍微縮小字體以適應 */
     }
     div[role="radiogroup"] label[data-checked="true"] {
         background-color: rgba(128, 128, 128, 0.1);
         font-weight: bold;
         color: #5e72e4;
+    }
+    div[role="radiogroup"] label p {
+        font-weight: inherit; /* 讓文字繼承粗體 */
+        margin: 0; /* 移除段落預設邊距 */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -202,7 +217,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v13.0 (Advance Pay)")
+st.sidebar.caption("宇毛的記帳本 v13.1 (Layout Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -345,7 +360,8 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
-    txn_type = st.radio("類型", ["💸 支出 (花錢)", "💰 收入 (賺錢)"], horizontal=True, label_visibility="collapsed")
+    # 文字精簡化，避免換行
+    txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True, label_visibility="collapsed")
     
     with st.form("expense_form", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
@@ -359,12 +375,11 @@ if page == "💸 隨手記帳 (本月)":
         reimburse_target = ""
         
         if "支出" in txn_type:
-            # 修改這裡：增加選項明確度
-            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (報帳/幫朋友付)"], horizontal=True)
+            # 選項精簡化，避免換行
+            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (代墊)"], horizontal=True)
             if "是" in is_reimbursable:
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
-                reimburse_target = st.text_input("幫誰代墊？(例如: Andy, 社團)", placeholder="輸入名字...")
-                # 簡化值為 '是' 以保持後端邏輯一致
+                reimburse_target = st.text_input("幫誰代墊？", placeholder="例如: Andy")
                 is_reimbursable = "是"
             else:
                 is_reimbursable = "否"
@@ -377,7 +392,6 @@ if page == "💸 隨手記帳 (本月)":
             if item_input and amount_input > 0:
                 date_str = date_input.strftime("%m/%d")
                 
-                # 自動附加代墊對象到項目名稱
                 final_item_name = item_input
                 if reimburse_target:
                     final_item_name = f"{item_input} ({reimburse_target})"
@@ -425,8 +439,8 @@ if page == "💸 隨手記帳 (本月)":
                 color = "#2dce89" if status == "已入帳" else "var(--text-color)"
                 prefix = "+$"
             elif txn_class == "報帳/代墊":
-                badge_html = make_badge(status, "gray" if status == "已入帳" else "purple") # 代墊未還用顯眼顏色
-                color = "#8e44ad" if status == "未入帳" else "var(--text-color)" # 紫色代表代墊
+                badge_html = make_badge(status, "gray" if status == "已入帳" else "purple") 
+                color = "#8e44ad" if status == "未入帳" else "var(--text-color)"
                 prefix = "$"
             else: 
                 badge_html = ""
@@ -448,11 +462,9 @@ if page == "💸 隨手記帳 (本月)":
                 with col_amt:
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 with col_action:
-                    # 報帳/代墊 與 收入 可切換
                     if "報帳" in txn_class or txn_class == "收入":
                         is_cleared = (status == "已入帳")
-                        # 顯示文字根據類型變化
-                        toggle_label = "已還款?" if "報帳" in txn_class else ""
+                        toggle_label = "已還?" if "報帳" in txn_class else ""
                         
                         if st.toggle(toggle_label, value=is_cleared, key=f"tg_{index}") != is_cleared:
                             new_state = not is_cleared
