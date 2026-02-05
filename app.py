@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v13.4 Text Polish) ---
+# --- CSS 極致美化 (v14.0 Automation) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -49,6 +49,8 @@ st.markdown("""
         letter-spacing: 0.5px;
         text-transform: uppercase;
         margin-bottom: 6px;
+        white-space: normal;
+        line-height: 1.2;
     }
     
     .card-value {
@@ -57,6 +59,7 @@ st.markdown("""
         color: var(--text-color);
         letter-spacing: -0.5px;
         line-height: 1.2;
+        white-space: nowrap; 
     }
     
     .card-note {
@@ -66,6 +69,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 4px;
+        white-space: normal; 
     }
 
     /* === 進度條樣式 === */
@@ -171,8 +175,6 @@ st.markdown("""
         font-weight: bold;
         color: #5e72e4;
     }
-    
-    /* 針對 stRadio 內部 label 加粗，但不影響全局 sidebar */
     .stRadio > label {
         font-weight: bold;
     }
@@ -208,7 +210,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v13.4 (Text Polish)")
+st.sidebar.caption("宇毛的記帳本 v14.0 (Auto & Sync)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -220,38 +222,27 @@ def get_data(worksheet_name, head=1):
         return pd.DataFrame(), None
 
 # --- UI 元件生成器 ---
-
 def make_modern_card(title, value, note, color_theme, progress=None):
     themes = {
-        "blue":   "#5e72e4",
-        "red":    "#f5365c",
-        "green":  "#2dce89",
-        "orange": "#fb6340",
-        "gray":   "var(--text-color)",
-        "dark":   "var(--text-color)",
-        "purple": "#8e44ad"
+        "blue":   "#5e72e4", "red": "#f5365c", "green": "#2dce89",
+        "orange": "#fb6340", "gray": "var(--text-color)", "dark": "var(--text-color)", "purple": "#8e44ad"
     }
     accent_color = themes.get(color_theme, "var(--text-color)")
-    
     note_style = f"color: {accent_color};"
-    if color_theme in ["gray", "dark"]:
-        note_style = "color: var(--text-color); opacity: 0.7;"
+    if color_theme in ["gray", "dark"]: note_style = "color: var(--text-color); opacity: 0.7;"
 
     progress_html = ""
     if progress is not None:
         try:
             pct = min(max(float(progress), 0.0), 1.0) * 100
             progress_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {accent_color};"></div></div>'
-        except:
-            progress_html = ""
+        except: progress_html = ""
         
     return f"""
     <div class="custom-card">
         <div class="card-title">{title}</div>
         <div class="card-value">{value}</div>
-        <div class="card-note" style="{note_style}">
-            {note}
-        </div>
+        <div class="card-note" style="{note_style}">{note}</div>
         {progress_html}
     </div>
     """
@@ -260,20 +251,22 @@ def make_badge(text, style="gray"):
     return f'<span class="badge badge-{style}">{text}</span>'
 
 # ==========================================
-# 🏠 頁面 1：隨手記帳
+# 🏠 頁面 1：隨手記帳 (Auto Sync & Routine)
 # ==========================================
 if page == "💸 隨手記帳 (本月)":
     current_month = datetime.now().month
+    current_day = datetime.now().day
     st.subheader(f"👋 {current_month} 月財務面板")
     
     base_budget = 97 if current_month == 2 else 2207
     
     df_log, ws_log = get_data("流動支出日記帳", head=4)
     df_assets, ws_assets = get_data("資產總覽表")
-    df_status, _ = get_data("現況資金檢核")
+    df_status, ws_status = get_data("現況資金檢核") # 新增 ws_status 以便寫入
 
     if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
+    # 1. 取得靜態缺口 (讀取)
     try:
         gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
         base_gap_static = int(float(gap_str))
@@ -282,6 +275,7 @@ if page == "💸 隨手記帳 (本月)":
         base_gap_static = -9999
         max_gap_ref = 3000
 
+    # 2. 計算本月動態數據
     total_expenses_only = 0
     pending_debt = 0
     cleared_income_sum = 0
@@ -306,10 +300,95 @@ if page == "💸 隨手記帳 (本月)":
         pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
         cleared_income_sum = abs(int(current_month_logs[current_month_logs['實際消耗'] < 0]['實際消耗'].sum()))
 
+    # 3. 核心數值計算
+    # 注意：這裡算出的是「應該要是」的 Gap，等一下收入時會寫入試算表
     current_gap = base_gap_static - pending_debt + cleared_income_sum
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
 
+    # --- 🔔 例行事項檢查 (New!) ---
+    # 邏輯：檢查是否已經有這個月的固定項目，如果沒有就顯示按鈕
+    # 簡單起見，我們只看日期觸發
+    with st.expander("🔔 例行事項檢查 (Routine Check)", expanded=True):
+        col_r1, col_r2 = st.columns(2)
+        
+        # 5號薪水檢查
+        with col_r1:
+            if current_day >= 5:
+                # 簡單檢查本月是否有 $3900 的收入紀錄
+                has_salary = False
+                if not current_month_logs.empty:
+                    has_salary = not current_month_logs[
+                        (current_month_logs['金額'] == 3900) & 
+                        (current_month_logs['是否報帳'] == '收入')
+                    ].empty
+                
+                if not has_salary:
+                    st.warning("📅 5號發薪日到了！")
+                    if st.button("💰 一鍵入帳薪水 ($3900)"):
+                        if ws_log and ws_assets and ws_status:
+                            date_str = datetime.now().strftime("%m/%d")
+                            # 1. 寫入日記帳 (已入帳)
+                            ws_log.append_row([date_str, "固定收入 (薪水)", 3900, "收入", -3900, "已入帳"])
+                            # 2. 更新資產 (台幣 +3900)
+                            try:
+                                all_assets = ws_assets.get_all_records()
+                                for ai, arow in enumerate(all_assets):
+                                    if arow.get('資產項目') == '台幣活存':
+                                        curr = int(str(arow.get('目前價值', 0)).replace(',', ''))
+                                        ws_assets.update_cell(ai+2, 2, curr + 3900)
+                                        break
+                            except: pass
+                            # 3. 更新缺口 (同步到試算表)
+                            try:
+                                new_gap_val = current_gap + 3900
+                                # 假設缺口在第2列第2欄 (B2) - 根據你的 csv 結構最後一列
+                                # 為了安全，我們append一列新的狀態或是更新最後一列
+                                # 這裡假設更新最後一列
+                                last_row = len(df_status) + 1 # +1 for header
+                                ws_status.update_cell(last_row + 1, 2, new_gap_val) 
+                            except: pass
+                            
+                            st.success("薪水已入帳！資產與缺口已更新。")
+                            time.sleep(1)
+                            st.rerun()
+                else:
+                    st.success("✅ 本月薪水已記錄")
+            else:
+                st.info(f"再等 {5-current_day} 天發薪水")
+
+        # 10號定存檢查
+        with col_r2:
+            if current_day >= 10:
+                # 這裡很難檢查是否已轉帳，所以單純顯示按鈕讓用戶確認
+                st.warning("📅 10號定存扣款日")
+                if st.button("🏦 一鍵轉存定存 ($1000)"):
+                    if ws_assets:
+                        try:
+                            # 台幣 -1000, 定存 +1000
+                            all_assets = ws_assets.get_all_records()
+                            twd_row, fix_row = -1, -1
+                            twd_val, fix_val = 0, 0
+                            
+                            for ai, arow in enumerate(all_assets):
+                                if arow.get('資產項目') == '台幣活存':
+                                    twd_row = ai + 2
+                                    twd_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
+                                if arow.get('資產項目') == '定存累計':
+                                    fix_row = ai + 2
+                                    fix_val = int(str(arow.get('目前價值', 0)).replace(',', ''))
+                            
+                            if twd_row != -1 and fix_row != -1:
+                                ws_assets.update_cell(twd_row, 2, twd_val - 1000)
+                                ws_assets.update_cell(fix_row, 2, fix_val + 1000)
+                                st.success("已完成轉帳：台幣->定存")
+                                time.sleep(1)
+                                st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+            else:
+                st.info(f"再等 {10-current_day} 天扣定存")
+
+    # --- 儀表板區域 ---
     col1, col2, col3, col4 = st.columns(4)
     
     gap_progress = 0.0
@@ -317,8 +396,7 @@ if page == "💸 隨手記帳 (本月)":
         gap_status = "📉 填坑中..."
         gap_color = "orange"
         gap_note = "收入優先抵債"
-        try:
-            gap_progress = 1.0 - (abs(current_gap) / max(abs(base_gap_static)+1000, 2000))
+        try: gap_progress = 1.0 - (abs(current_gap) / max(abs(base_gap_static)+1000, 2000))
         except: gap_progress = 0.0
     else:
         gap_status = "🎉 已轉正"
@@ -365,7 +443,6 @@ if page == "💸 隨手記帳 (本月)":
         reimburse_target = ""
         
         if "支出" in txn_type:
-            # 1. 選項簡化為「是」
             is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是"], horizontal=True)
             if "是" in is_reimbursable:
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
@@ -394,6 +471,7 @@ if page == "💸 隨手記帳 (本月)":
                     
                     ws_log.append_row([date_str, final_item_name, amount_input, is_reimbursable, actual_cost, status_val])
                     
+                    # 支出扣資產
                     if ws_assets:
                         try:
                             all_assets = ws_assets.get_all_records()
@@ -403,6 +481,15 @@ if page == "💸 隨手記帳 (本月)":
                                     ws_assets.update_cell(ai+2, 2, curr - amount_input)
                                     break
                         except: pass
+                        
+                    # 支出如果是報帳(未入帳)，也會增加缺口，這裡我們同步更新 Gap 到 Sheet
+                    if is_reimbursable == "是":
+                         try:
+                            new_gap_val = current_gap - amount_input # 負債增加，缺口變大(更負)
+                            last_row = len(df_status) + 1
+                            ws_status.update_cell(last_row + 1, 2, new_gap_val)
+                         except: pass
+
                     st.toast(f"💸 支出已記：${amount_input}")
                     
                 else:
@@ -452,10 +539,8 @@ if page == "💸 隨手記帳 (本月)":
                 with col_amt:
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 with col_action:
-                    # 2. 開關文字優化
                     if "報帳" in txn_class or txn_class == "收入":
                         is_cleared = (status == "已入帳")
-                        # 收入顯示「已入帳?」，代墊顯示「已結清?」
                         toggle_label = "已結清?" if "報帳" in txn_class else "已入帳?"
                         
                         if st.toggle(toggle_label, value=is_cleared, key=f"tg_{index}") != is_cleared:
@@ -463,24 +548,40 @@ if page == "💸 隨手記帳 (本月)":
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
                             asset_change = 0
+                            gap_change = 0 # 缺口變動
                             
                             if "報帳" in txn_class:
                                 new_actual_cost = row['金額'] if not new_state else 0
                                 asset_change = row['金額'] if new_state else -row['金額']
+                                gap_change = row['金額'] if new_state else -row['金額'] # 已結清=錢回來了=缺口變小(正向)
                             elif txn_class == "收入":
                                 new_actual_cost = -row['金額'] if new_state else 0
                                 asset_change = row['金額'] if new_state else -row['金額']
+                                gap_change = row['金額'] if new_state else -row['金額']
                                 
+                            # 1. 更新資產
                             if ws_assets and asset_change != 0:
                                 try:
-                                    all = ws_assets.get_all_records()
-                                    for ai, ar in enumerate(all):
+                                    all_assets = ws_assets.get_all_records()
+                                    for ai, ar in enumerate(all_assets):
                                         if ar.get('資產項目') == '台幣活存':
                                             curr = int(str(ar.get('目前價值', 0)).replace(',', ''))
                                             ws_assets.update_cell(ai+2, 2, curr + asset_change)
                                             break
                                 except: pass
-                                
+                            
+                            # 2. 強制更新缺口到試算表 (Sync Fix)
+                            if ws_status and gap_change != 0:
+                                try:
+                                    # 計算新的缺口值 = 當前顯示的缺口 + 變動量
+                                    # 注意：current_gap 已經是程式算出來的最新值，我們可以直接用
+                                    # 但最準確的是直接讀取 current_gap 並加上 gap_change
+                                    final_gap = current_gap + gap_change
+                                    last_row = len(df_status) + 1
+                                    ws_status.update_cell(last_row + 1, 2, final_gap)
+                                except: pass
+
+                            # 3. 更新日記帳
                             if ws_log:
                                 ws_log.update_cell(real_row_idx, 5, new_actual_cost)
                                 ws_log.update_cell(real_row_idx, 6, new_status_str)
@@ -490,7 +591,7 @@ if page == "💸 隨手記帳 (本月)":
                 st.markdown("---")
 
 # ==========================================
-# 🛍️ 頁面 2：購物冷靜清單 (Modern UI)
+# 🛍️ 頁面 2：購物冷靜清單
 # ==========================================
 elif page == "🛍️ 購物冷靜清單":
     st.subheader("🧊 購物冷靜清單")
@@ -549,7 +650,7 @@ elif page == "🛍️ 購物冷靜清單":
                             st.rerun()
 
 # ==========================================
-# 📊 頁面 3：資產與收支 (Visual Fix)
+# 📊 頁面 3：資產與收支
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
@@ -592,7 +693,7 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估 (Mobile Order Fix)
+# 📅 頁面 4：未來推估
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 未來六個月財務預測")
