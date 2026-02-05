@@ -8,18 +8,15 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 強制注入 (v19.5 Summary Layout Fix) ---
+# --- CSS 極致美化 (v20.0 Final Polish) ---
 st.markdown("""
 <style>
-    /* === 1. 全局基礎設定 === */
-    .stApp {
-        background-color: #0e1117 !important;
-        color: #fafafa !important;
-    }
+    /* 1. 全局設定 */
+    .stApp { background-color: #0e1117 !important; color: #fafafa !important; }
     #MainMenu, footer, header {visibility: hidden;}
     .block-container { padding-top: 2rem; padding-bottom: 5rem; }
 
-    /* === 2. 萬用卡片樣式 === */
+    /* 2. 萬用卡片 */
     .custom-card {
         background-color: #262730 !important;
         padding: 20px !important;
@@ -28,76 +25,66 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
         margin-bottom: 15px;
     }
-    .card-title { font-size: 14px; color: rgba(250, 250, 250, 0.7); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+    .card-title { font-size: 13px; color: rgba(250, 250, 250, 0.7); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
     .card-value { font-size: 28px; font-weight: 800; color: #ffffff; margin-bottom: 5px; }
     .card-note { font-size: 12px; font-weight: 500; opacity: 0.9; }
 
-    /* === 3. 進度條 === */
+    /* 3. 進度條 */
     .progress-bg { width: 100%; height: 6px; background-color: rgba(255,255,255,0.1); border-radius: 3px; margin-top: 12px; overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 3px; }
 
-    /* === 4. 資產小方塊 === */
+    /* 4. 資產方塊 (字體加大) */
     .asset-box {
         background-color: #1f2937 !important; padding: 15px; border-radius: 12px;
         border: 1px solid rgba(255,255,255,0.1); text-align: center; margin-bottom: 10px;
     }
     .asset-num {
-        font-size: 24px; font-weight: 800; color: #ffffff;
-        font-family: 'Roboto Mono', 'Courier New', monospace;
+        font-size: 26px; font-weight: 800; color: #ffffff;
+        font-family: 'Roboto Mono', monospace; /* 數字專用字體 */
         margin-bottom: 4px;
     }
     .asset-desc { font-size: 12px; opacity: 0.6; font-weight: 600; }
 
-    /* === 5. 列表項目 === */
+    /* 5. 列表項目 (滿版外框修正) */
     .list-row {
         background-color: #1f2937 !important;
-        padding: 16px 20px;
+        padding: 12px 20px; /* 增加內距 */
         border-radius: 12px;
-        margin-bottom: 4px;
+        margin-bottom: 0px; /* 貼近開關 */
         border: 1px solid rgba(255,255,255,0.1);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        height: 100%;
-        min-height: 70px;
+        min-height: 70px; /* 固定高度 */
     }
     .list-left { display: flex; flex-direction: column; gap: 4px; }
     .list-right { text-align: right; }
+    .list-amt { font-size: 20px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
-    /* === 6. 底部總結區 (Grid Layout Fix) === */
+    /* 6. 標籤 Badge */
+    .status-badge { padding: 3px 8px; font-size: 10px; font-weight: 700; border-radius: 6px; display: inline-block; margin-right: 5px;}
+
+    /* 7. 收支模型標題 */
+    .model-header {
+        font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.6);
+        margin-top: 25px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;
+    }
+
+    /* 8. 底部結算區 (Grid Layout) */
     .summary-box {
         background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-        color: white;
-        padding: 24px;
-        border-radius: 20px;
-        margin-top: 24px;
+        color: white; padding: 24px; border-radius: 20px; margin-top: 24px;
         box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-        
-        /* 使用 Grid 取代 Flex，防止跑版 */
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-        align-items: center;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: center;
     }
-    .summary-item-left { text-align: left; }
-    .summary-item-right { text-align: right; }
-    
-    .summary-label { font-size: 12px; opacity: 0.8; margin-bottom: 4px; font-weight: 600; }
     .summary-val { font-size: 24px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
-    /* === 7. 標籤 Badge === */
-    .status-badge { padding: 3px 8px; font-size: 10px; font-weight: 700; border-radius: 6px; display: inline-block;}
-
-    /* === 8. 元件優化 === */
-    .stButton > button { border-radius: 10px !important; border: none !important; font-weight: bold; }
+    /* 9. 元件優化 */
+    .stButton > button { border-radius: 10px !important; border: none !important; font-weight: bold; background-color: #374151 !important; color: white !important;}
+    /* 紅色刪除按鈕 */
     .stButton > button[kind="primary"] { background-color: #ef4444 !important; color: white !important; }
     .stTextInput > div > div > input { background-color: #1f2937 !important; color: white !important; border-radius: 10px; }
     section[data-testid="stSidebar"] { background-color: #111827 !important; }
-    
-    .model-header {
-        font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.5);
-        margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -134,7 +121,7 @@ def make_badge(text, color="gray"):
     return f'<span class="status-badge" style="background-color:{bg}; color:{fg};">{text}</span>'
 
 # ==========================================
-# 🚀 資料準備
+# 🚀 資料準備 (Logic from v19.2)
 # ==========================================
 now_dt = datetime.now()
 current_month = now_dt.month
@@ -162,9 +149,7 @@ current_month_logs = pd.DataFrame()
 if not df_log.empty:
     def robust_month_parser(x):
         try: return pd.to_datetime(str(x), format='%m/%d').month
-        except:
-            try: return pd.to_datetime(str(x)).month
-            except: return current_month 
+        except: return current_month 
 
     df_log['Month'] = df_log['日期'].apply(robust_month_parser)
     current_month_logs = df_log[df_log['Month'] == current_month].copy()
@@ -262,7 +247,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v19.5 (Summary Fix)")
+st.sidebar.caption("宇毛的記帳本 v20.0 (Final Polish)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -338,29 +323,45 @@ if page == "💸 隨手記帳 (本月)":
             elif cls == "固定收支": b_clr, t_clr = "blue", "#60a5fa"
             else: t_clr, pfx = "#f87171", "-$"
 
+            # Layout: 合併欄位，用 HTML 排版做出滿版外框
             with st.container():
-                c1, c2, c3 = st.columns([3, 1.5, 1.2])
-                c1.markdown(f"""<div class="list-row"><div class="list-left"><span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span><span style="font-weight:700; font-size:1.05em;">{row['項目']}</span><div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div></div><div class="list-right"><span style="color:{t_clr}; font-weight:800; font-size:1.3em;">{pfx}{row['金額']}</span></div></div>""", unsafe_allow_html=True)
+                c_row, c_act = st.columns([6, 1])
                 
-                if cls in ["報帳/代墊", "收入"]:
-                    is_clr = (sta == "已入帳")
-                    lbl = "已結清" if "報帳" in cls else "已入帳"
-                    if c3.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
-                        new_state = not is_clr
-                        new_s = "已入帳" if new_state else "未入帳"
-                        new_act, chg = 0, 0
-                        
-                        if "報帳" in cls:
-                            new_act = 0 if new_state else row['金額']
-                            chg = row['金額'] if new_state else -row['金額']
-                        elif cls == "收入":
-                            new_act = -row['金額'] if new_state else 0
-                            chg = row['金額'] if new_state else -row['金額']
-                        
-                        if chg != 0: sync_update(chg)
-                        ws_log.update_cell(real_idx, 5, new_act)
-                        ws_log.update_cell(real_idx, 6, new_s)
-                        st.success("已更新"); time.sleep(0.5); st.rerun()
+                with c_row:
+                    st.markdown(f"""
+                    <div class="list-row">
+                        <div class="list-left">
+                            <span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span>
+                            <span style="font-weight:700; font-size:1.05em;">{row['項目']}</span>
+                            <div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div>
+                        </div>
+                        <div class="list-right">
+                            <span class="list-amt" style="color:{t_clr};">{pfx}{row['金額']}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with c_act:
+                    st.write("") # Spacer
+                    if cls in ["報帳/代墊", "收入"]:
+                        is_clr = (sta == "已入帳")
+                        lbl = "已結清" if "報帳" in cls else "已入帳"
+                        if st.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
+                            new_state = not is_clr
+                            new_s = "已入帳" if new_state else "未入帳"
+                            new_act, chg = 0, 0
+                            
+                            if "報帳" in cls:
+                                new_act = 0 if new_state else row['金額']
+                                chg = row['金額'] if new_state else -row['金額']
+                            elif cls == "收入":
+                                new_act = -row['金額'] if new_state else 0
+                                chg = row['金額'] if new_state else -row['金額']
+                            
+                            if chg != 0: sync_update(chg)
+                            ws_log.update_cell(real_idx, 5, new_act)
+                            ws_log.update_cell(real_idx, 6, new_s)
+                            st.success("已更新"); time.sleep(0.5); st.rerun()
         st.markdown("---")
 
 # ==========================================
@@ -390,7 +391,14 @@ elif page == "🛍️ 購物冷靜清單":
             n = row.get('物品名稱', '未命名'); p = row.get('預估價格', 0); d = row.get('最終決策', '考慮'); nt = row.get('備註', '')
             with st.expander(f"🛒 **{n}** - ${p}"):
                 c1, c2 = st.columns([4, 1])
-                with c1: st.markdown(f"""<div style="margin-bottom:8px;">{make_badge(d, 'red' if d=='延後' else 'green')} <span style="opacity:0.7; margin-left:10px;">{nt}</span></div>""", unsafe_allow_html=True)
+                with c1:
+                    # 美化決策與備註
+                    st.markdown(f"""
+                    <div style="margin-bottom:8px;">
+                        {make_badge(d, 'red' if d=='延後' else 'green')}
+                        <span style="opacity:0.7; margin-left:10px;">{nt}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
                 with c2: 
                     if st.button("🗑️ 刪除", key=f"del_{i}", type="primary"): 
                         ws_shop.delete_rows(i+2); st.toast("已刪除"); time.sleep(1); st.rerun()
@@ -432,8 +440,14 @@ elif page == "📊 資產與收支":
             net_bal = df_model[df_model['項目 (A)'].str.contains("每月淨剩餘")]['金額 (B)'].values[0]
             st.markdown(f"""
             <div class="summary-box">
-                <div class="summary-item-left"><div class="summary-label">支出總計</div><div class="summary-val" style="color:#f87171;">${exp_tot}</div></div>
-                <div class="summary-item-right"><div class="summary-label">固定餘額</div><div class="summary-val" style="color:#2dce89;">${net_bal}</div></div>
+                <div style="text-align:left;">
+                    <div style="font-size:12px;opacity:0.7;">支出總計</div>
+                    <div class="summary-val" style="color:#f87171;">${exp_tot}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:12px;opacity:0.7;">固定餘額</div>
+                    <div class="summary-val" style="color:#2dce89;">${net_bal}</div>
+                </div>
             </div>""", unsafe_allow_html=True)
         except: pass
 
