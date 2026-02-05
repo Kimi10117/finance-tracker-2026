@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v20.0 Final Polish) ---
+# --- CSS 極致美化 (v20.1 Spacing Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
@@ -16,14 +16,16 @@ st.markdown("""
     #MainMenu, footer, header {visibility: hidden;}
     .block-container { padding-top: 2rem; padding-bottom: 5rem; }
 
-    /* 2. 萬用卡片 */
+    /* 2. 萬用卡片 (間距加大) */
     .custom-card {
         background-color: #262730 !important;
         padding: 20px !important;
         border-radius: 15px !important;
         border: 1px solid rgba(250, 250, 250, 0.1) !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
-        margin-bottom: 15px;
+        
+        /* ⬇️ 這裡調整了間距 */
+        margin-bottom: 24px !important; 
     }
     .card-title { font-size: 13px; color: rgba(250, 250, 250, 0.7); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
     .card-value { font-size: 28px; font-weight: 800; color: #ffffff; margin-bottom: 5px; }
@@ -33,29 +35,32 @@ st.markdown("""
     .progress-bg { width: 100%; height: 6px; background-color: rgba(255,255,255,0.1); border-radius: 3px; margin-top: 12px; overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 3px; }
 
-    /* 4. 資產方塊 (字體加大) */
+    /* 4. 資產方塊 */
     .asset-box {
         background-color: #1f2937 !important; padding: 15px; border-radius: 12px;
         border: 1px solid rgba(255,255,255,0.1); text-align: center; margin-bottom: 10px;
     }
     .asset-num {
         font-size: 26px; font-weight: 800; color: #ffffff;
-        font-family: 'Roboto Mono', monospace; /* 數字專用字體 */
+        font-family: 'Roboto Mono', monospace;
         margin-bottom: 4px;
     }
     .asset-desc { font-size: 12px; opacity: 0.6; font-weight: 600; }
 
-    /* 5. 列表項目 (滿版外框修正) */
+    /* 5. 列表項目 (間距也微調) */
     .list-row {
         background-color: #1f2937 !important;
-        padding: 12px 20px; /* 增加內距 */
+        padding: 12px 20px;
         border-radius: 12px;
-        margin-bottom: 0px; /* 貼近開關 */
+        
+        /* ⬇️ 列表之間的間距也稍微加大，看起來更舒服 */
+        margin-bottom: 8px; 
+        
         border: 1px solid rgba(255,255,255,0.1);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        min-height: 70px; /* 固定高度 */
+        min-height: 70px;
     }
     .list-left { display: flex; flex-direction: column; gap: 4px; }
     .list-right { text-align: right; }
@@ -67,13 +72,13 @@ st.markdown("""
     /* 7. 收支模型標題 */
     .model-header {
         font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.6);
-        margin-top: 25px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;
+        margin-top: 30px; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;
     }
 
-    /* 8. 底部結算區 (Grid Layout) */
+    /* 8. 底部結算區 */
     .summary-box {
         background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-        color: white; padding: 24px; border-radius: 20px; margin-top: 24px;
+        color: white; padding: 24px; border-radius: 20px; margin-top: 30px;
         box-shadow: 0 10px 20px rgba(0,0,0,0.2);
         display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: center;
     }
@@ -81,7 +86,6 @@ st.markdown("""
 
     /* 9. 元件優化 */
     .stButton > button { border-radius: 10px !important; border: none !important; font-weight: bold; background-color: #374151 !important; color: white !important;}
-    /* 紅色刪除按鈕 */
     .stButton > button[kind="primary"] { background-color: #ef4444 !important; color: white !important; }
     .stTextInput > div > div > input { background-color: #1f2937 !important; color: white !important; border-radius: 10px; }
     section[data-testid="stSidebar"] { background-color: #111827 !important; }
@@ -121,7 +125,7 @@ def make_badge(text, color="gray"):
     return f'<span class="status-badge" style="background-color:{bg}; color:{fg};">{text}</span>'
 
 # ==========================================
-# 🚀 資料準備 (Logic from v19.2)
+# 🚀 資料準備
 # ==========================================
 now_dt = datetime.now()
 current_month = now_dt.month
@@ -247,7 +251,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v20.0 (Final Polish)")
+st.sidebar.caption("宇毛的記帳本 v20.1 (Spacing Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -323,7 +327,6 @@ if page == "💸 隨手記帳 (本月)":
             elif cls == "固定收支": b_clr, t_clr = "blue", "#60a5fa"
             else: t_clr, pfx = "#f87171", "-$"
 
-            # Layout: 合併欄位，用 HTML 排版做出滿版外框
             with st.container():
                 c_row, c_act = st.columns([6, 1])
                 
@@ -342,7 +345,7 @@ if page == "💸 隨手記帳 (本月)":
                     """, unsafe_allow_html=True)
                 
                 with c_act:
-                    st.write("") # Spacer
+                    st.write("") 
                     if cls in ["報帳/代墊", "收入"]:
                         is_clr = (sta == "已入帳")
                         lbl = "已結清" if "報帳" in cls else "已入帳"
@@ -392,7 +395,6 @@ elif page == "🛍️ 購物冷靜清單":
             with st.expander(f"🛒 **{n}** - ${p}"):
                 c1, c2 = st.columns([4, 1])
                 with c1:
-                    # 美化決策與備註
                     st.markdown(f"""
                     <div style="margin-bottom:8px;">
                         {make_badge(d, 'red' if d=='延後' else 'green')}
