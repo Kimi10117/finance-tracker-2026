@@ -4,24 +4,21 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import time
+import re
 
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v20.2 Menu Fix) ---
+# --- CSS 極致美化 (v20.3 Fixes) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
     .stApp { background-color: #0e1117 !important; color: #fafafa !important; }
-    
-    /* ⬇️ 修正處：只隱藏 footer 和 主選單的三點，保留 header 以便顯示側邊欄按鈕 */
     #MainMenu {visibility: hidden;} 
     footer {visibility: hidden;}
-    /* header {visibility: hidden;}  <-- 這行刪除了，找回你的選單按鈕 */
-    
     .block-container { padding-top: 2rem; padding-bottom: 5rem; }
 
-    /* 2. 萬用卡片 (間距加大) */
+    /* 2. 萬用卡片 */
     .custom-card {
         background-color: #262730 !important;
         padding: 20px !important;
@@ -66,8 +63,19 @@ st.markdown("""
     .list-right { text-align: right; }
     .list-amt { font-size: 20px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
-    /* 6. 標籤 Badge */
-    .status-badge { padding: 3px 8px; font-size: 10px; font-weight: 700; border-radius: 6px; display: inline-block; margin-right: 5px;}
+    /* 6. 標籤 Badge (修正置中問題) */
+    .status-badge { 
+        padding: 4px 0px; /* 上下 padding，左右由 width 控制 */
+        width: 60px;      /* 固定寬度，確保整齊 */
+        font-size: 11px; 
+        font-weight: 700; 
+        border-radius: 20px; /* 更圓潤 */
+        display: inline-block; 
+        margin-right: 8px;
+        text-align: center; /* 文字水平置中 */
+        vertical-align: middle; /* 垂直對齊 */
+        line-height: 1.2;
+    }
 
     /* 7. 收支模型標題 */
     .model-header {
@@ -253,7 +261,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v20.2 (Menu Fix)")
+st.sidebar.caption("宇毛的記帳本 v20.3 (Sorted & Centered)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -330,28 +338,43 @@ if page == "💸 隨手記帳 (本月)":
             else: t_clr, pfx = "#f87171", "-$"
 
             with st.container():
-                c1, c2, c3 = st.columns([3, 1.5, 1.2])
-                c1.markdown(f"""<div class="list-row"><div class="list-left"><span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span><span style="font-weight:700; font-size:1.05em;">{row['項目']}</span><div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div></div><div class="list-right"><span class="list-amt" style="color:{t_clr};">{pfx}{row['金額']}</span></div></div>""", unsafe_allow_html=True)
+                c_row, c_act = st.columns([6, 1])
                 
-                if cls in ["報帳/代墊", "收入"]:
-                    is_clr = (sta == "已入帳")
-                    lbl = "已結清" if "報帳" in cls else "已入帳"
-                    if c3.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
-                        new_state = not is_clr
-                        new_s = "已入帳" if new_state else "未入帳"
-                        new_act, chg = 0, 0
-                        
-                        if "報帳" in cls:
-                            new_act = 0 if new_state else row['金額']
-                            chg = row['金額'] if new_state else -row['金額']
-                        elif cls == "收入":
-                            new_act = -row['金額'] if new_state else 0
-                            chg = row['金額'] if new_state else -row['金額']
-                        
-                        if chg != 0: sync_update(chg)
-                        ws_log.update_cell(real_idx, 5, new_act)
-                        ws_log.update_cell(real_idx, 6, new_s)
-                        st.success("已更新"); time.sleep(0.5); st.rerun()
+                with c_row:
+                    st.markdown(f"""
+                    <div class="list-row">
+                        <div class="list-left">
+                            <span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span>
+                            <span style="font-weight:700; font-size:1.05em;">{row['項目']}</span>
+                            <div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div>
+                        </div>
+                        <div class="list-right">
+                            <span class="list-amt" style="color:{t_clr};">{pfx}{row['金額']}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with c_act:
+                    st.write("") 
+                    if cls in ["報帳/代墊", "收入"]:
+                        is_clr = (sta == "已入帳")
+                        lbl = "已結清" if "報帳" in cls else "已入帳"
+                        if st.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
+                            new_state = not is_clr
+                            new_s = "已入帳" if new_state else "未入帳"
+                            new_act, chg = 0, 0
+                            
+                            if "報帳" in cls:
+                                new_act = 0 if new_state else row['金額']
+                                chg = row['金額'] if new_state else -row['金額']
+                            elif cls == "收入":
+                                new_act = -row['金額'] if new_state else 0
+                                chg = row['金額'] if new_state else -row['金額']
+                            
+                            if chg != 0: sync_update(chg)
+                            ws_log.update_cell(real_idx, 5, new_act)
+                            ws_log.update_cell(real_idx, 6, new_s)
+                            st.success("已更新"); time.sleep(0.5); st.rerun()
         st.markdown("---")
 
 # ==========================================
@@ -381,7 +404,14 @@ elif page == "🛍️ 購物冷靜清單":
             n = row.get('物品名稱', '未命名'); p = row.get('預估價格', 0); d = row.get('最終決策', '考慮'); nt = row.get('備註', '')
             with st.expander(f"🛒 **{n}** - ${p}"):
                 c1, c2 = st.columns([4, 1])
-                with c1: st.markdown(f"""<div style="margin-bottom:8px;">{make_badge(d, 'red' if d=='延後' else 'green')} <span style="opacity:0.7; margin-left:10px;">{nt}</span></div>""", unsafe_allow_html=True)
+                with c1:
+                    # 美化決策與備註
+                    st.markdown(f"""
+                    <div style="margin-bottom:8px; display:flex; align-items:center;">
+                        {make_badge(d, 'red' if d=='延後' else 'green')}
+                        <span style="opacity:0.7; margin-left:10px;">{nt}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
                 with c2: 
                     if st.button("🗑️ 刪除", key=f"del_{i}", type="primary"): 
                         ws_shop.delete_rows(i+2); st.toast("已刪除"); time.sleep(1); st.rerun()
@@ -435,16 +465,29 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估
+# 📅 頁面 4：未來推估 (排序與顯示修復)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 財務預測")
     if not df_future.empty:
-        valid_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
+        # 1. 複製資料以免影響原始 DF
+        valid_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")].copy()
+        
+        # 2. 排序邏輯：提取「期數 (B)」中的數字
+        def get_period_num(x):
+            try: return int(''.join(filter(str.isdigit, str(x))))
+            except: return 999
+        
+        valid_df['SortKey'] = valid_df['期數 (B)'].apply(get_period_num)
+        valid_df = valid_df.sort_values('SortKey')
+
+        # 3. 顯示
         cols = st.columns(3)
         for i, (idx, row) in enumerate(valid_df.iterrows()):
             with cols[i % 3]:
                 st.markdown(f"""<div class="asset-box"><div style="font-weight:bold;margin-bottom:5px;">{row['月份 (A)']}</div><div style="font-size:12px;opacity:0.7;">目標: ${row['目標應有餘額 (E)']}</div><div style="font-size:18px;color:#a78bfa;font-weight:800;">${row['預估實際餘額 (D)']}</div></div>""", unsafe_allow_html=True)
+        
+        # 強制顯示最後一個月
         try:
             last = valid_df.iloc[-1]
             st.markdown("---")
