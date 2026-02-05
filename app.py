@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v15.0 Automation) ---
+# --- CSS 極致美化 (v15.1 Gap Pos Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -215,7 +215,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v15.0 (Automation Master)")
+st.sidebar.caption("宇毛的記帳本 v15.1 (Gap Pos Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -274,10 +274,16 @@ if page == "💸 隨手記帳 (本月)":
 
     if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-    # 1. 取得靜態缺口
+    # 1. 取得靜態缺口 (讀取)
     try:
-        gap_str = str(df_status['數值 (B)'].iloc[-1]).replace(',', '')
-        base_gap_static = int(float(gap_str))
+        # B9 的位置在 DataFrame 是 index 7 (因為 title 佔 1 行, gspread 讀進來 header 又 1 行)
+        # 還是直接指定 row 9 col 2 最穩
+        # 我們先讀目前顯示的值，只是為了計算 Gap 進度
+        if ws_status:
+            gap_val = ws_status.cell(9, 2).value # 直接讀 B9
+            base_gap_static = int(str(gap_val).replace(',', ''))
+        else:
+            base_gap_static = -9999
         max_gap_ref = 3000 
     except:
         base_gap_static = -9999
@@ -310,6 +316,7 @@ if page == "💸 隨手記帳 (本月)":
         cleared_income_sum = abs(int(current_month_logs[current_month_logs['實際消耗'] < 0]['實際消耗'].sum()))
 
     # 3. 核心數值計算
+    # 注意：這裡算出的是「應該要是」的 Gap，等一下收入時會寫入試算表
     current_gap = base_gap_static - pending_debt + cleared_income_sum
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
@@ -318,17 +325,15 @@ if page == "💸 隨手記帳 (本月)":
     with st.expander("🔔 智慧例行事項檢查 (Smart Check)", expanded=True):
         r_col1, r_col2 = st.columns(2)
         
-        # 輔助函式：檢查是否已記錄
         def check_logged(keyword):
             if current_month_logs.empty: return False
             return current_month_logs['項目'].str.contains(keyword, case=False).any()
 
-        # 輔助函式：執行記帳+資產+缺口更新
         def execute_auto_entry(name, amount, is_income=False, is_transfer=False):
             if not ws_log or not ws_assets: return
             date_str = now_dt.strftime("%m/%d")
             
-            if is_transfer: # 定存轉帳
+            if is_transfer: 
                 try:
                     all_assets = ws_assets.get_all_records()
                     twd_r, fix_r = -1, -1
@@ -339,19 +344,17 @@ if page == "💸 隨手記帳 (本月)":
                     if twd_r!=-1 and fix_r!=-1:
                         ws_assets.update_cell(twd_r, 2, twd_v - amount)
                         ws_assets.update_cell(fix_r, 2, fix_v + amount)
-                        ws_log.append_row([date_str, name, amount, "否", 0, "已入帳"]) # 轉帳不記消耗
+                        ws_log.append_row([date_str, name, amount, "否", 0, "已入帳"]) 
                         st.success(f"✅ {name} 執行成功！")
                         time.sleep(1)
                         st.rerun()
                 except: st.error("轉帳失敗")
                 return
 
-            # 一般收支
             type_str = "收入" if is_income else "否"
             cost = -amount if is_income else amount
             ws_log.append_row([date_str, name, amount, type_str, cost, "已入帳"])
             
-            # 更新資產
             try:
                 all_assets = ws_assets.get_all_records()
                 for i, r in enumerate(all_assets):
@@ -362,11 +365,11 @@ if page == "💸 隨手記帳 (本月)":
                         break
             except: pass
             
-            # 更新缺口 (收入時)
+            # 強制更新缺口到 B9 (收入時)
             if is_income and ws_status:
                 try:
                     new_gap = current_gap + amount
-                    ws_status.update_cell(len(df_status)+1, 2, new_gap)
+                    ws_status.update_cell(9, 2, new_gap) # 鎖定 B9
                 except: pass
             
             st.success(f"✅ {name} 已記錄！")
@@ -509,12 +512,11 @@ if page == "💸 隨手記帳 (本月)":
                                     break
                         except: pass
                     
-                    # 支出如果是報帳(未入帳)，同步更新缺口
+                    # 支出如果是報帳(未入帳)，同步更新缺口到 B9
                     if is_reimbursable == "是" and ws_status:
                          try:
                             new_gap_val = current_gap - amount_input
-                            last_row = len(df_status) + 1
-                            ws_status.update_cell(last_row + 1, 2, new_gap_val)
+                            ws_status.update_cell(9, 2, new_gap_val) # 鎖定 B9
                          except: pass
 
                     st.toast(f"💸 支出已記：${amount_input}")
@@ -589,18 +591,18 @@ if page == "💸 隨手記帳 (本月)":
                             if ws_assets and asset_change != 0:
                                 try:
                                     all_assets = ws_assets.get_all_records()
-                                    for ai, ar in enumerate(all_assets):
+                                    for ai, arow in enumerate(all_assets):
                                         if ar.get('資產項目') == '台幣活存':
                                             curr = int(str(ar.get('目前價值', 0)).replace(',', ''))
                                             ws_assets.update_cell(ai+2, 2, curr + asset_change)
                                             break
                                 except: pass
                             
+                            # 強制更新缺口到 B9
                             if ws_status and gap_change != 0:
                                 try:
                                     final_gap = current_gap + gap_change
-                                    last_row = len(df_status) + 1
-                                    ws_status.update_cell(last_row + 1, 2, final_gap)
+                                    ws_status.update_cell(9, 2, final_gap) # 鎖定 B9
                                 except: pass
 
                             if ws_log:
