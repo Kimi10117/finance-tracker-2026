@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v13.2 Display Fix) ---
+# --- CSS 極致美化 (v13.3 Stable Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -49,9 +49,6 @@ st.markdown("""
         letter-spacing: 0.5px;
         text-transform: uppercase;
         margin-bottom: 6px;
-        /* 移除強制不換行，允許長標題自然顯示 */
-        white-space: normal; 
-        line-height: 1.2;
     }
     
     .card-value {
@@ -60,8 +57,6 @@ st.markdown("""
         color: var(--text-color);
         letter-spacing: -0.5px;
         line-height: 1.2;
-        /* 數值保持單行，避免破版 */
-        white-space: nowrap; 
     }
     
     .card-note {
@@ -71,8 +66,6 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 4px;
-        /* 註解允許換行 */
-        white-space: normal; 
     }
 
     /* === 進度條樣式 === */
@@ -154,43 +147,12 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* === Radio Button 優化 (關鍵修復：允許換行但保持對齊) === */
-    div[role="radiogroup"] {
-        background-color: var(--secondary-background-color);
-        padding: 4px;
-        border-radius: 12px;
-        border: 1px solid rgba(128, 128, 128, 0.1);
-        display: flex;
-        flex-direction: row; /* 預設橫向 */
-        gap: 2px;
-    }
-    div[role="radiogroup"] label {
-        flex: 1;
-        text-align: center;
-        background-color: transparent;
-        border: none;
-        padding: 8px 6px;
-        border-radius: 8px;
-        transition: all 0.2s;
-        color: var(--text-color);
-        
-        /* 關鍵：允許文字換行，但垂直置中 */
-        white-space: normal !important; 
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 40px; /* 確保有足夠高度 */
-    }
-    div[role="radiogroup"] label[data-checked="true"] {
-        background-color: rgba(128, 128, 128, 0.1);
+    /* === 重置 Radio Button 樣式 (解決左側選單壞掉問題) === */
+    /* 我們不再對全局 radio 進行侵入式修改，只針對特定 class */
+    
+    /* 針對表單內的 Radio 進行微調 (不影響 Sidebar) */
+    .stRadio > label {
         font-weight: bold;
-        color: #5e72e4;
-    }
-    div[role="radiogroup"] label p {
-        font-weight: inherit;
-        margin: 0;
-        line-height: 1.2; /* 讓多行文字稍微緊湊一點 */
-        font-size: 14px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -224,7 +186,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v13.2 (Text Fix)")
+st.sidebar.caption("宇毛的記帳本 v13.3 (Stable)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -367,7 +329,8 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
-    txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True, label_visibility="collapsed")
+    # 簡化選項文字，確保手機版顯示正常
+    txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True)
     
     with st.form("expense_form", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
@@ -381,8 +344,8 @@ if page == "💸 隨手記帳 (本月)":
         reimburse_target = ""
         
         if "支出" in txn_type:
-            # 完整選項，現在 CSS 支援換行顯示了
-            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (報帳/幫朋友付)"], horizontal=True)
+            # 簡化選項文字，確保手機版顯示正常
+            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (代墊)"], horizontal=True)
             if "是" in is_reimbursable:
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
                 reimburse_target = st.text_input("幫誰代墊？", placeholder="例如: Andy")
