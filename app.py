@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v17.1 Compact) ---
+# --- CSS 極致美化 (v17.1 Sidebar Routine) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -21,7 +21,7 @@ st.markdown("""
     footer {visibility: hidden;}
     
     .block-container {
-        padding-top: 3rem;
+        padding-top: 2rem; /* 稍微縮小頂部間距，讓畫面更緊湊 */
         padding-bottom: 5rem;
         padding-left: 1rem;
         padding-right: 1rem;
@@ -198,18 +198,6 @@ except Exception as e:
     st.error(f"❌ 連線失敗：{e}")
     st.stop()
 
-# --- 側邊欄 ---
-st.sidebar.title("🚀 功能選單")
-page = st.sidebar.radio("請選擇功能", [
-    "💸 隨手記帳 (本月)", 
-    "🛍️ 購物冷靜清單", 
-    "📊 資產與收支",
-    "📅 未來推估",
-    "🗓️ 歷史帳本回顧"
-])
-st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v17.1 (Compact)")
-
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
     try:
@@ -249,175 +237,163 @@ def make_badge(text, style="gray"):
     return f'<span class="badge badge-{style}">{text}</span>'
 
 # ==========================================
-# 🏠 頁面 1：隨手記帳
+# 🚀 準備資料 (提早讀取以便側邊欄使用)
 # ==========================================
-if page == "💸 隨手記帳 (本月)":
-    now_dt = datetime.now()
-    current_month = now_dt.month
-    current_day = now_dt.day
-    current_year = now_dt.year
-    
-    st.subheader(f"👋 {current_month} 月財務面板")
-    
-    base_budget = 97 if current_month == 2 else 2207
-    
-    df_log, ws_log = get_data("流動支出日記帳", head=4)
-    df_assets, ws_assets = get_data("資產總覽表")
-    df_status, ws_status = get_data("現況資金檢核")
+now_dt = datetime.now()
+current_month = now_dt.month
+current_day = now_dt.day
+current_year = now_dt.year
 
-    if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
+df_log, ws_log = get_data("流動支出日記帳", head=4)
+df_assets, ws_assets = get_data("資產總覽表")
+df_status, ws_status = get_data("現況資金檢核")
 
-    # 1. 取得靜態缺口
+if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
+
+# 取得靜態缺口 (B9)
+try:
+    if ws_status:
+        gap_val = ws_status.cell(9, 2).value 
+        base_gap_static = int(str(gap_val).replace(',', ''))
+    else: base_gap_static = -9999
+except: base_gap_static = -9999
+
+# 計算本月數據
+total_variable_expenses = 0
+pending_debt = 0
+current_month_logs = pd.DataFrame()
+
+if not df_log.empty:
+    def robust_month_parser(x):
+        try: return pd.to_datetime(str(x), format='%m/%d').month
+        except:
+            try: return pd.to_datetime(str(x)).month
+            except: return current_month 
+
+    df_log['Month'] = df_log['日期'].apply(robust_month_parser)
+    current_month_logs = df_log[df_log['Month'] == current_month].copy()
+    current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
+    current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
+    current_month_logs['項目'] = current_month_logs['項目'].astype(str)
+    
+    # 過濾變動支出
+    variable_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
+    total_variable_expenses = int(current_month_logs[variable_mask]['實際消耗'].sum())
+    
+    # 過濾未入帳代墊
+    pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
+    pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
+
+current_gap = base_gap_static
+base_budget = 97 if current_month == 2 else 2207
+surplus_from_gap = max(0, current_gap)
+remaining = (base_budget + surplus_from_gap) - total_variable_expenses
+
+# --- 💡 全同步更新函式 ---
+def sync_update(amount_change):
+    if not ws_assets or not ws_status: return
     try:
-        if ws_status:
-            gap_val = ws_status.cell(9, 2).value 
-            base_gap_static = int(str(gap_val).replace(',', ''))
-        else:
-            base_gap_static = -9999
-    except:
-        base_gap_static = -9999
+        # 1. 資產更新
+        all_assets = ws_assets.get_all_records()
+        new_twd_balance = 0
+        for i, r in enumerate(all_assets):
+            if r.get('資產項目') == '台幣活存':
+                curr = int(str(r.get('目前價值', 0)).replace(',', ''))
+                new_twd_balance = curr + amount_change
+                ws_assets.update_cell(i+2, 2, new_twd_balance)
+                break
+        
+        # 2. 狀態表更新 (B6, B9)
+        ws_status.update_cell(6, 2, new_twd_balance)
+        curr_gap_val = int(str(ws_status.cell(9, 2).value).replace(',', ''))
+        ws_status.update_cell(9, 2, curr_gap_val + amount_change)
+    except Exception as e: st.error(f"Sync Error: {e}")
 
-    # 2. 計算本月動態數據
-    total_variable_expenses = 0
-    pending_debt = 0
-    current_month_logs = pd.DataFrame()
+# ==========================================
+# 側邊欄 (Sidebar) & 智慧例行事項
+# ==========================================
+st.sidebar.title("🚀 功能選單")
+
+# --- 🔔 側邊欄待辦事項檢查 ---
+def check_logged(keyword):
+    if current_month_logs.empty: return False
+    return current_month_logs['項目'].str.contains(keyword, case=False).any()
+
+def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
+    if not ws_log: return
+    date_str = now_dt.strftime("%m/%d")
     
-    if not df_log.empty:
-        def robust_month_parser(x):
-            try: return pd.to_datetime(str(x), format='%m/%d').month
-            except:
-                try: return pd.to_datetime(str(x)).month
-                except: 
-                    if str(x).strip() == "": return 0
-                    return current_month 
-
-        df_log['Month'] = df_log['日期'].apply(robust_month_parser)
-        current_month_logs = df_log[df_log['Month'] == current_month].copy()
-        current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
-        current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
-        current_month_logs['項目'] = current_month_logs['項目'].astype(str)
-        
-        # 過濾：只計算「已實現」且「非固定」的支出扣預算
-        variable_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
-        total_variable_expenses = int(current_month_logs[variable_mask]['實際消耗'].sum())
-        
-        pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
-        pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
-
-    # 3. 核心數值
-    current_gap = base_gap_static
-    surplus_from_gap = max(0, current_gap)
-    remaining = (base_budget + surplus_from_gap) - total_variable_expenses
-
-    # --- 💡 全同步更新函式 ---
-    def sync_update(amount_change, is_income_flag=False):
-        if not ws_assets or not ws_status: return
+    if is_transfer: # 定存轉帳
         try:
             all_assets = ws_assets.get_all_records()
-            new_twd_balance = 0
+            twd_r, fix_r, twd_v, fix_v = -1, -1, 0, 0
             for i, r in enumerate(all_assets):
-                if r.get('資產項目') == '台幣活存':
-                    curr = int(str(r.get('目前價值', 0)).replace(',', ''))
-                    new_twd_balance = curr + amount_change
-                    ws_assets.update_cell(i+2, 2, new_twd_balance)
-                    break
-            
-            ws_status.update_cell(6, 2, new_twd_balance)
-            curr_gap_val = int(str(ws_status.cell(9, 2).value).replace(',', ''))
-            new_gap_val = curr_gap_val + amount_change
-            ws_status.update_cell(9, 2, new_gap_val)
-            
-        except Exception as e: st.error(f"Sync Error: {e}")
+                if r.get('資產項目') == '台幣活存': twd_r=i+2; twd_v=int(str(r.get('目前價值',0)).replace(',',''))
+                if r.get('資產項目') == '定存累計': fix_r=i+2; fix_v=int(str(r.get('目前價值',0)).replace(',',''))
+            if twd_r!=-1 and fix_r!=-1:
+                ws_assets.update_cell(twd_r, 2, twd_v - amount)
+                ws_assets.update_cell(fix_r, 2, fix_v + amount)
+                ws_status.update_cell(6, 2, twd_v - amount) # 同步B6
+                ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
+                st.toast(f"✅ {name} 完成！")
+                time.sleep(1)
+                st.rerun()
+        except: pass
+        return
 
-    # --- 🔔 智慧例行事項 (瘦身版) ---
-    # 先計算出哪些是「待辦」的，再決定要不要顯示區塊
+    # 一般固定收支
+    is_income = (type_code == "固定收入")
+    change = amount if is_income else -amount
+    ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
+    sync_update(change)
+    st.toast(f"✅ {name} 已記錄！")
+    time.sleep(1)
+    st.rerun()
+
+# 收集待辦事項
+pending_tasks = []
+if current_day >= 5 and not check_logged("固定收入"):
+    pending_tasks.append({"name": "📥 入帳薪水 ($3900)", "type": "fixed_in", "amt": 3900, "desc": "固定收入 (薪水)"})
+if current_day >= 10 and not check_logged("定存扣款"):
+    pending_tasks.append({"name": "🏦 轉存定存 ($1000)", "type": "transfer", "amt": 1000, "desc": "定存扣款"})
+if current_day >= 10 and not check_logged("電信費"):
+    pending_tasks.append({"name": "📱 繳電信費 ($499)", "type": "fixed_out", "amt": 499, "desc": "電信費"})
+if current_day >= 22 and not check_logged("YT Premium"):
+    pending_tasks.append({"name": "▶️ 繳 YT Premium ($119)", "type": "fixed_out", "amt": 119, "desc": "YT Premium"})
+if (current_year < 2026 or (current_year == 2026 and current_month < 7)) and current_day >= 6 and not check_logged("小雪"):
+    pending_tasks.append({"name": "❄️ 繳小雪會員 ($75)", "type": "fixed_out", "amt": 75, "desc": "YT會員(小雪)"})
+if current_gap < 0 and not check_logged("自我分期"):
+    pending_tasks.append({"name": "💳 自我分期還債 ($2110)", "type": "fixed_out", "amt": 2110, "desc": "自我分期(還債)"})
+
+# 顯示側邊欄通知
+if pending_tasks:
+    st.sidebar.info(f"🔔 你有 {len(pending_tasks)} 個待辦事項")
+    for task in pending_tasks:
+        if st.sidebar.button(task["name"], key=f"sb_btn_{task['desc']}"):
+            t_code = "固定收入" if task["type"] == "fixed_in" else "固定支出"
+            is_trans = (task["type"] == "transfer")
+            execute_auto_entry(task["desc"], task["amt"], t_code, is_trans)
+    st.sidebar.markdown("---")
+
+# 顯示主選單
+page = st.sidebar.radio("請選擇功能", [
+    "💸 隨手記帳 (本月)", 
+    "🛍️ 購物冷靜清單", 
+    "📊 資產與收支",
+    "📅 未來推估",
+    "🗓️ 歷史帳本回顧"
+])
+st.sidebar.markdown("---")
+st.sidebar.caption("宇毛的記帳本 v17.1 (Sidebar Routine)")
+
+# ==========================================
+# 🏠 頁面 1：隨手記帳 (主畫面)
+# ==========================================
+if page == "💸 隨手記帳 (本月)":
+    st.subheader(f"👋 {current_month} 月財務面板")
     
-    pending_tasks = [] # 用來存待辦事項的 list (字典格式)
-    
-    def check_logged(keyword):
-        if current_month_logs.empty: return False
-        return current_month_logs['項目'].str.contains(keyword, case=False).any()
-
-    # 定義檢查邏輯
-    # 1. 薪水
-    if current_day >= 5 and not check_logged("固定收入"):
-        pending_tasks.append({
-            "name": "📥 入帳薪水 ($3900)", "type": "income", "amt": 3900, "desc": "固定收入 (薪水)", "key": "btn_salary"
-        })
-    # 2. 定存
-    if current_day >= 10 and not check_logged("定存扣款"):
-        pending_tasks.append({
-            "name": "🏦 轉存定存 ($1000)", "type": "transfer", "amt": 1000, "desc": "定存扣款", "key": "btn_deposit"
-        })
-    # 3. 電信費
-    if current_day >= 10 and not check_logged("電信費"):
-        pending_tasks.append({
-            "name": "📱 繳電信費 ($499)", "type": "expense", "amt": 499, "desc": "電信費", "key": "btn_tel"
-        })
-    # 4. YT Premium
-    if current_day >= 22 and not check_logged("YT Premium"):
-        pending_tasks.append({
-            "name": "▶️ 繳 YT Premium ($119)", "type": "expense", "amt": 119, "desc": "YT Premium", "key": "btn_ytp"
-        })
-    # 5. 小雪
-    if (current_year < 2026 or (current_year == 2026 and current_month < 7)) and current_day >= 6 and not check_logged("小雪"):
-        pending_tasks.append({
-            "name": "❄️ 繳小雪會員 ($75)", "type": "expense", "amt": 75, "desc": "YT會員(小雪)", "key": "btn_koyuki"
-        })
-    # 6. 自我分期 (只要缺口負就顯示)
-    if current_gap < 0 and not check_logged("自我分期"):
-        pending_tasks.append({
-            "name": "💳 自我分期還債 ($2110)", "type": "expense", "amt": 2110, "desc": "自我分期(還債)", "key": "btn_debt"
-        })
-
-    # --- 顯示區塊 (只有當有 pending_tasks 才顯示) ---
-    if pending_tasks:
-        with st.expander(f"🔔 待辦事項 ({len(pending_tasks)})", expanded=True):
-            # 使用多欄排版，每行 2-3 個
-            cols = st.columns(3) if len(pending_tasks) >= 3 else st.columns(len(pending_tasks))
-            
-            for i, task in enumerate(pending_tasks):
-                with cols[i % 3]: # 循環放入 column
-                    if st.button(task["name"], key=task["key"], use_container_width=True):
-                        if not ws_log: continue
-                        
-                        date_str = now_dt.strftime("%m/%d")
-                        
-                        # 定存轉帳特殊處理
-                        if task["type"] == "transfer":
-                            try:
-                                all_assets = ws_assets.get_all_records()
-                                twd_r, fix_r, twd_v = -1, -1, 0
-                                for ai, r in enumerate(all_assets):
-                                    if r.get('資產項目') == '台幣活存': twd_r=ai+2; twd_v=int(str(r.get('目前價值',0)).replace(',',''))
-                                    if r.get('資產項目') == '定存累計': fix_r=ai+2; fix_v=int(str(r.get('目前價值',0)).replace(',',''))
-                                if twd_r!=-1 and fix_r!=-1:
-                                    ws_assets.update_cell(twd_r, 2, twd_v - task["amt"])
-                                    ws_assets.update_cell(fix_r, 2, fix_v + task["amt"])
-                                    ws_status.update_cell(6, 2, twd_v - task["amt"]) # 同步B6
-                                    ws_log.append_row([date_str, task["desc"], task["amt"], "固定", 0, "固定扣款"])
-                                    st.success(f"✅ {task['desc']} 完成！")
-                                    time.sleep(1)
-                                    st.rerun()
-                            except: pass
-                        
-                        else:
-                            # 一般固定收支
-                            is_income = (task["type"] == "income")
-                            change = task["amt"] if is_income else -task["amt"]
-                            ws_log.append_row([date_str, task["desc"], task["amt"], "固定", 0, "固定扣款"])
-                            sync_update(change)
-                            st.success(f"✅ {task['desc']} 已記錄！")
-                            time.sleep(1)
-                            st.rerun()
-    else:
-        # 如果都完成了，只在角落顯示一個小提示 (選用，目前先留白保持乾淨)
-        # st.caption("✅ 本月例行事項皆已完成")
-        pass
-
-    # --- 儀表板區域 ---
+    # 儀表板
     col1, col2, col3, col4 = st.columns(4)
-    
     gap_progress = 0.0
     if current_gap < 0:
         gap_status = "📉 填坑中..."
@@ -447,14 +423,12 @@ if page == "💸 隨手記帳 (本月)":
 
     if pending_debt > 0:
         st.caption(f"ℹ️ 包含 ${pending_debt} 未入帳的代墊款。")
-    if current_gap < 0:
-        st.info(f"💡 缺口雖為負，但只要「目前可用」是綠色，代表本月消費還在控制內。")
     if remaining < 0:
         st.error("🚨 警告：本月已透支！請停止支出！")
 
     st.markdown("---")
 
-    # --- 交易輸入區 ---
+    # 交易輸入區
     st.subheader("📝 新增交易")
     txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True)
     
@@ -462,10 +436,8 @@ if page == "💸 隨手記帳 (本月)":
         c1, c2 = st.columns([1, 2])
         date_input = c1.date_input("日期", datetime.now())
         item_input = c2.text_input("項目", placeholder="例如: 午餐")
-        
         c3, c4 = st.columns(2)
         amount_input = c3.number_input("金額", min_value=1, step=1)
-        
         is_reimbursable = "否"
         reimburse_target = ""
         
@@ -475,8 +447,7 @@ if page == "💸 隨手記帳 (本月)":
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
                 reimburse_target = st.text_input("幫誰代墊？", placeholder="例如: Andy")
                 is_reimbursable = "是"
-            else:
-                is_reimbursable = "否"
+            else: is_reimbursable = "否"
         else:
             st.caption("ℹ️ 收入預設為 **「未入帳」**")
             
@@ -485,23 +456,17 @@ if page == "💸 隨手記帳 (本月)":
         if submitted and ws_log:
             if item_input and amount_input > 0:
                 date_str = date_input.strftime("%m/%d")
-                
-                final_item_name = item_input
-                if reimburse_target:
-                    final_item_name = f"{item_input} ({reimburse_target})"
+                final_item_name = f"{item_input} ({reimburse_target})" if reimburse_target else item_input
                 
                 if "支出" in txn_type:
-                    if is_reimbursable == "是":
-                        actual_cost = amount_input; status_val = "未入帳"
-                    else:
-                        actual_cost = amount_input; status_val = "已入帳"
+                    if is_reimbursable == "是": actual_cost = amount_input; status_val = "未入帳"
+                    else: actual_cost = amount_input; status_val = "已入帳"
                     
                     ws_log.append_row([date_str, final_item_name, amount_input, is_reimbursable, actual_cost, status_val])
                     
-                    # 支出: 扣資產、扣 Gap (變更負)
+                    # 支出同步扣資產 & Gap
                     change = -amount_input
                     sync_update(change)
-
                     st.toast(f"💸 支出已記：${amount_input}")
                     
                 else:
@@ -512,13 +477,12 @@ if page == "💸 隨手記帳 (本月)":
                 time.sleep(1)
                 st.rerun()
 
-    # --- 明細列表 ---
+    # 明細列表
     if not current_month_logs.empty:
         st.markdown("### 📜 本月明細")
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
             real_row_idx = index + 5 
             txn_class = "一般"
-            # 判斷類型
             if row['是否報帳'] == "是": txn_class = "報帳/代墊"
             elif row['是否報帳'] == "收入": txn_class = "收入"
             elif row['是否報帳'] == "固定": txn_class = "固定收支"
@@ -529,7 +493,6 @@ if page == "💸 隨手記帳 (本月)":
             badge_color = "gray"
             text_color = "var(--text-color)"
             prefix = "$"
-            
             if txn_class == "收入":
                 badge_color = "green" if status == "已入帳" else "gray"
                 text_color = "#2dce89" if status == "已入帳" else "var(--text-color)"
@@ -540,8 +503,7 @@ if page == "💸 隨手記帳 (本月)":
             elif txn_class == "固定收支":
                 badge_color = "blue"
                 text_color = "#3498db"
-                prefix = "$" 
-            else: # 一般支出
+            else:
                 text_color = "#f5365c"
                 prefix = "-$"
 
@@ -551,21 +513,13 @@ if page == "💸 隨手記帳 (本月)":
             with st.container():
                 col_info, col_amt, col_action = st.columns([3, 1.5, 1])
                 with col_info:
-                    st.markdown(f"""
-                    <div style="line-height:1.4;">
-                        <span style="font-size:0.85em; opacity: 0.7;">{row['日期']}</span><br>
-                        <span style="font-weight:600;">{row['項目']}</span>
-                        <br>{badge_html} <span style="font-size:0.8em; opacity: 0.6;">{txn_class}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div style="line-height:1.4;"><span style="font-size:0.85em; opacity: 0.7;">{row['日期']}</span><br><span style="font-weight:600;">{row['項目']}</span><br>{badge_html} <span style="font-size:0.8em; opacity: 0.6;">{txn_class}</span></div>""", unsafe_allow_html=True)
                 with col_amt:
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 with col_action:
-                    # 只有 一般收支/代墊 可以切換狀態 (固定收支不能切)
                     if txn_class in ["報帳/代墊", "收入"]:
                         is_cleared = (status == "已入帳")
                         toggle_label = "已結清?" if "報帳" in txn_class else "已入帳?"
-                        
                         if st.toggle(toggle_label, value=is_cleared, key=f"tg_{index}") != is_cleared:
                             new_state = not is_cleared
                             new_status_str = "已入帳" if new_state else "未入帳"
@@ -579,9 +533,7 @@ if page == "💸 隨手記帳 (本月)":
                                 new_actual_cost = -row['金額'] if new_state else 0
                                 asset_change = row['金額'] if new_state else -row['金額']
                                 
-                            if asset_change != 0:
-                                sync_update(asset_change)
-
+                            if asset_change != 0: sync_update(asset_change)
                             if ws_log:
                                 ws_log.update_cell(real_row_idx, 5, new_actual_cost)
                                 ws_log.update_cell(real_row_idx, 6, new_status_str)
@@ -608,11 +560,9 @@ elif page == "🛍️ 購物冷靜清單":
         d1, d2 = st.columns(2)
         with d1: st.markdown(make_modern_card("清單總項數", f"{total_items} 項", "慾望清單", "blue"), unsafe_allow_html=True)
         with d2: st.markdown(make_modern_card("預估總金額", f"${total_price:,}", "需存錢目標", "orange"), unsafe_allow_html=True)
-    else:
-        st.info("清單是空的！")
+    else: st.info("清單是空的！")
 
     st.markdown("---")
-
     with st.expander("➕ 新增願望", expanded=False):
         with st.form("shopping_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -685,11 +635,7 @@ elif page == "📊 資產與收支":
         try:
             exp = df_model[df_model['項目 (A)'].astype(str).str.contains("支出總計")]['金額 (B)'].values[0]
             bal = df_model[df_model['項目 (A)'].astype(str).str.contains("每月淨剩餘")]['金額 (B)'].values[0]
-            st.markdown(f"""
-            <div class="summary-box">
-                <div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div>
-                <div style="text-align:right;"><div class="summary-title">固定餘額</div><div style="font-size:20px;font-weight:bold;color:#2dce89;">${bal}</div></div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="summary-box"><div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div><div style="text-align:right;"><div class="summary-title">固定餘額</div><div style="font-size:20px;font-weight:bold;color:#2dce89;">${bal}</div></div></div>""", unsafe_allow_html=True)
         except: pass
 
 # ==========================================
@@ -701,7 +647,6 @@ elif page == "📅 未來推估":
     if not df_future.empty:
         target_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
         rows_data = [target_df.iloc[i:i+3] for i in range(0, len(target_df), 3)]
-        
         for row_batch in rows_data:
             cols = st.columns(3) 
             for i, (index, row) in enumerate(row_batch.iterrows()):
