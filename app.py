@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v12.1 Style Fix) ---
+# --- CSS 極致美化 (v13.0 Advance Payment) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -27,7 +27,7 @@ st.markdown("""
         padding-right: 1rem;
     }
 
-    /* === 現代化卡片設計 (支援 Dark Mode) === */
+    /* === 現代化卡片設計 === */
     .custom-card {
         background-color: var(--secondary-background-color);
         padding: 15px;
@@ -120,6 +120,7 @@ st.markdown("""
     .badge-gray { background: rgba(136, 152, 170, 0.2); color: var(--text-color); opacity: 0.8; }
     .badge-orange { background: rgba(251, 99, 64, 0.15); color: #fb6340; }
     .badge-green { background: rgba(45, 206, 137, 0.15); color: #2dce89; }
+    .badge-purple { background: rgba(142, 68, 173, 0.15); color: #8e44ad; }
 
     /* === 底部總結區 === */
     .summary-box {
@@ -201,7 +202,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v12.1 (Mobile Fix)")
+st.sidebar.caption("宇毛的記帳本 v13.0 (Advance Pay)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -334,7 +335,7 @@ if page == "💸 隨手記帳 (本月)":
     with col4: st.markdown(make_modern_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=gap_progress), unsafe_allow_html=True)
 
     if pending_debt > 0:
-        st.caption(f"ℹ️ 包含 ${pending_debt} 未入帳支出。")
+        st.caption(f"ℹ️ 包含 ${pending_debt} 未入帳的代墊/報帳支出。")
     if current_gap < 0:
         st.info(f"💡 額外收入正優先填補 ${abs(current_gap)} 缺口。")
     if remaining < 0:
@@ -342,20 +343,31 @@ if page == "💸 隨手記帳 (本月)":
 
     st.markdown("---")
 
+    # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
     txn_type = st.radio("類型", ["💸 支出 (花錢)", "💰 收入 (賺錢)"], horizontal=True, label_visibility="collapsed")
     
     with st.form("expense_form", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
         date_input = c1.date_input("日期", datetime.now())
-        item_input = c2.text_input("項目", placeholder="輸入名稱 (例如: 午餐)")
+        item_input = c2.text_input("項目", placeholder="例如: 午餐")
+        
         c3, c4 = st.columns(2)
         amount_input = c3.number_input("金額", min_value=1, step=1)
+        
         is_reimbursable = "否"
+        reimburse_target = ""
         
         if "支出" in txn_type:
-            is_reimbursable = c4.radio("是否報帳?", ["否", "是"], horizontal=True)
-            if is_reimbursable == "是": st.caption("ℹ️ 報帳預設為 **「未入帳」**")
+            # 修改這裡：增加選項明確度
+            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (報帳/幫朋友付)"], horizontal=True)
+            if "是" in is_reimbursable:
+                st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
+                reimburse_target = st.text_input("幫誰代墊？(例如: Andy, 社團)", placeholder="輸入名字...")
+                # 簡化值為 '是' 以保持後端邏輯一致
+                is_reimbursable = "是"
+            else:
+                is_reimbursable = "否"
         else:
             st.caption("ℹ️ 收入預設為 **「未入帳」**")
             
@@ -365,13 +377,18 @@ if page == "💸 隨手記帳 (本月)":
             if item_input and amount_input > 0:
                 date_str = date_input.strftime("%m/%d")
                 
+                # 自動附加代墊對象到項目名稱
+                final_item_name = item_input
+                if reimburse_target:
+                    final_item_name = f"{item_input} ({reimburse_target})"
+                
                 if "支出" in txn_type:
                     if is_reimbursable == "是":
                         actual_cost = amount_input; status_val = "未入帳"
                     else:
                         actual_cost = amount_input; status_val = "已入帳"
                     
-                    ws_log.append_row([date_str, item_input, amount_input, is_reimbursable, actual_cost, status_val])
+                    ws_log.append_row([date_str, final_item_name, amount_input, is_reimbursable, actual_cost, status_val])
                     
                     if ws_assets:
                         try:
@@ -386,18 +403,19 @@ if page == "💸 隨手記帳 (本月)":
                     
                 else:
                     actual_cost = 0; status_val = "未入帳"
-                    ws_log.append_row([date_str, item_input, amount_input, "收入", actual_cost, status_val])
+                    ws_log.append_row([date_str, final_item_name, amount_input, "收入", actual_cost, status_val])
                     st.toast(f"💰 收入已記 (未入帳)：${amount_input}")
                 
                 time.sleep(1)
                 st.rerun()
 
+    # --- 明細列表 ---
     if not current_month_logs.empty:
         st.markdown("### 📜 本月明細")
         for i, (index, row) in enumerate(current_month_logs.iloc[::-1].iterrows()):
             real_row_idx = index + 5 
             txn_class = "一般"
-            if row['是否報帳'] == "是": txn_class = "報帳"
+            if row['是否報帳'] == "是": txn_class = "報帳/代墊"
             elif row['是否報帳'] == "收入": txn_class = "收入"
             
             status = str(row.get('已入帳', '已入帳')).strip() or "已入帳"
@@ -406,9 +424,9 @@ if page == "💸 隨手記帳 (本月)":
                 badge_html = make_badge(status, "green" if status == "已入帳" else "gray")
                 color = "#2dce89" if status == "已入帳" else "var(--text-color)"
                 prefix = "+$"
-            elif txn_class == "報帳":
-                badge_html = make_badge(status, "gray" if status == "已入帳" else "orange")
-                color = "#fb6340" if status == "未入帳" else "var(--text-color)"
+            elif txn_class == "報帳/代墊":
+                badge_html = make_badge(status, "gray" if status == "已入帳" else "purple") # 代墊未還用顯眼顏色
+                color = "#8e44ad" if status == "未入帳" else "var(--text-color)" # 紫色代表代墊
                 prefix = "$"
             else: 
                 badge_html = ""
@@ -430,15 +448,19 @@ if page == "💸 隨手記帳 (本月)":
                 with col_amt:
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 with col_action:
-                    if txn_class in ["報帳", "收入"]:
+                    # 報帳/代墊 與 收入 可切換
+                    if "報帳" in txn_class or txn_class == "收入":
                         is_cleared = (status == "已入帳")
-                        if st.toggle("", value=is_cleared, key=f"tg_{index}") != is_cleared:
+                        # 顯示文字根據類型變化
+                        toggle_label = "已還款?" if "報帳" in txn_class else ""
+                        
+                        if st.toggle(toggle_label, value=is_cleared, key=f"tg_{index}") != is_cleared:
                             new_state = not is_cleared
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
                             asset_change = 0
                             
-                            if txn_class == "報帳":
+                            if "報帳" in txn_class:
                                 new_actual_cost = row['金額'] if not new_state else 0
                                 asset_change = row['金額'] if new_state else -row['金額']
                             elif txn_class == "收入":
@@ -464,7 +486,7 @@ if page == "💸 隨手記帳 (本月)":
                 st.markdown("---")
 
 # ==========================================
-# 🛍️ 頁面 2：購物冷靜清單
+# 🛍️ 頁面 2：購物冷靜清單 (Modern UI)
 # ==========================================
 elif page == "🛍️ 購物冷靜清單":
     st.subheader("🧊 購物冷靜清單")
@@ -523,7 +545,7 @@ elif page == "🛍️ 購物冷靜清單":
                             st.rerun()
 
 # ==========================================
-# 📊 頁面 3：資產與收支 (Style Fix)
+# 📊 頁面 3：資產與收支 (Visual Fix)
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
@@ -558,7 +580,6 @@ elif page == "📊 資產與收支":
         try:
             exp = df_model[df_model['項目 (A)'].astype(str).str.contains("支出總計")]['金額 (B)'].values[0]
             bal = df_model[df_model['項目 (A)'].astype(str).str.contains("每月淨剩餘")]['金額 (B)'].values[0]
-            # --- 修正處：將固定餘額設為綠色，樣式統一 ---
             st.markdown(f"""
             <div class="summary-box">
                 <div><div class="summary-title">固定支出總計</div><div style="font-size:20px;font-weight:bold;color:#ff6b6b;">${exp}</div></div>
@@ -574,26 +595,17 @@ elif page == "📅 未來推估":
     df_future, _ = get_data("未來四個月推估")
     if not df_future.empty:
         target_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")]
-        
-        # --- 手機版順序修正 (Batch Processing) ---
-        # 邏輯：手動將資料分組，每 3 個一組建立一個 columns 容器
-        # 這樣手機版就會顯示：[1,2,3] 的區塊 (1->2->3) 然後才是 [4,5,6] 的區塊
-        
-        # 將 DataFrame 切分成每 3 筆一組
         rows_data = [target_df.iloc[i:i+3] for i in range(0, len(target_df), 3)]
         
         for row_batch in rows_data:
-            cols = st.columns(3) # 建立新的一列
-            # 在這一列中填入資料
+            cols = st.columns(3) 
             for i, (index, row) in enumerate(row_batch.iterrows()):
-                # 確保不超出 columns 數量 (雖然 batch 是 3，但最後一組可能少於 3)
                 if i < 3:
                     month = str(row['月份 (A)'])
                     est = row['預估實際餘額 (D)']
                     tgt = row['目標應有餘額 (E)']
                     with cols[i]:
                         st.markdown(f"""<div class="asset-card" style="text-align:center;"><div style="font-weight:bold;margin-bottom:5px;color:var(--text-color);">{month}</div><div style="font-size:12px;opacity:0.7;">目標: ${tgt}</div><div style="font-size:20px;font-weight:bold;color:#5e72e4;">${est}</div></div>""", unsafe_allow_html=True)
-        
         try:
             last = df_future.iloc[-1]
             st.markdown("---")
