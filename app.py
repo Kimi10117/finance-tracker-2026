@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v15.2 Sync Fix) ---
+# --- CSS 極致美化 (v16.0 Full Sync) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -214,7 +214,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v15.2 (Gap Sync Fix)")
+st.sidebar.caption("宇毛的記帳本 v16.0 (Full Sync)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -273,11 +273,10 @@ if page == "💸 隨手記帳 (本月)":
 
     if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-    # 1. 取得靜態缺口 (來自試算表 B9)
+    # 1. 取得靜態缺口 (讀取)
     try:
-        # 強制讀取 B9 (Index 9, Col 2 because API implies 1-based, but cell method is (row, col))
         if ws_status:
-            gap_val = ws_status.cell(9, 2).value # B9
+            gap_val = ws_status.cell(9, 2).value # B9: 實際透支缺口
             base_gap_static = int(str(gap_val).replace(',', ''))
         else:
             base_gap_static = -9999
@@ -286,9 +285,10 @@ if page == "💸 隨手記帳 (本月)":
         base_gap_static = -9999
         max_gap_ref = 3000
 
-    # 2. 計算本月動態數據 (僅供顯示用，不重複疊加到缺口)
+    # 2. 計算本月動態數據
     total_expenses_only = 0
     pending_debt = 0
+    cleared_income_sum = 0
     current_month_logs = pd.DataFrame()
     
     if not df_log.empty:
@@ -311,11 +311,43 @@ if page == "💸 隨手記帳 (本月)":
         pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
 
     # 3. 核心數值計算
-    # 修正邏輯：缺口直接讀取 B9，不再自己加減收入支出 (因為寫入時已經更新了 B9)
-    current_gap = base_gap_static 
+    # 因為 B9 已經是「最新」的缺口，所以我們直接顯示它，不再重複疊加
+    current_gap = base_gap_static
     
     surplus_from_gap = max(0, current_gap)
     remaining = (base_budget + surplus_from_gap) - total_expenses_only
+
+    # --- 💡 輔助函式：全同步更新 (Sync Master) ---
+    def sync_update(amount_change, is_income_flag=False):
+        """
+        核心同步函式：同時更新資產表(TWD) 與 狀態表(B6餘額, B9缺口)
+        amount_change: 資產變動量 (收入為正，支出為負)
+        """
+        if not ws_assets or not ws_status: return
+
+        try:
+            # 1. 更新資產表 (Asset)
+            all_assets = ws_assets.get_all_records()
+            new_twd_balance = 0
+            for i, r in enumerate(all_assets):
+                if r.get('資產項目') == '台幣活存':
+                    curr = int(str(r.get('目前價值', 0)).replace(',', ''))
+                    new_twd_balance = curr + amount_change
+                    ws_assets.update_cell(i+2, 2, new_twd_balance)
+                    break
+            
+            # 2. 更新狀態表 (Status)
+            # B6: 目前實際餘額 (同步 TWD Balance)
+            ws_status.update_cell(6, 2, new_twd_balance)
+            
+            # B9: 實際透支缺口 (同步 Gap)
+            # 讀取當前 gap -> 加上變動量 -> 寫回
+            curr_gap_val = int(str(ws_status.cell(9, 2).value).replace(',', ''))
+            new_gap_val = curr_gap_val + amount_change
+            ws_status.update_cell(9, 2, new_gap_val)
+            
+        except Exception as e:
+            st.error(f"Sync Error: {e}")
 
     # --- 🔔 智慧例行事項 ---
     with st.expander("🔔 智慧例行事項檢查 (Smart Check)", expanded=True):
@@ -326,10 +358,10 @@ if page == "💸 隨手記帳 (本月)":
             return current_month_logs['項目'].str.contains(keyword, case=False).any()
 
         def execute_auto_entry(name, amount, is_income=False, is_transfer=False):
-            if not ws_log or not ws_assets: return
+            if not ws_log: return
             date_str = now_dt.strftime("%m/%d")
             
-            if is_transfer: 
+            if is_transfer: # 定存轉帳 (資產內部轉移，不影響缺口)
                 try:
                     all_assets = ws_assets.get_all_records()
                     twd_r, fix_r = -1, -1
@@ -338,8 +370,11 @@ if page == "💸 隨手記帳 (本月)":
                         if r.get('資產項目') == '台幣活存': twd_r=i+2; twd_v=int(str(r.get('目前價值',0)).replace(',',''))
                         if r.get('資產項目') == '定存累計': fix_r=i+2; fix_v=int(str(r.get('目前價值',0)).replace(',',''))
                     if twd_r!=-1 and fix_r!=-1:
-                        ws_assets.update_cell(twd_r, 2, twd_v - amount)
-                        ws_assets.update_cell(fix_r, 2, fix_v + amount)
+                        ws_assets.update_cell(twd_r, 2, twd_v - amount) # 台幣少
+                        ws_assets.update_cell(fix_r, 2, fix_v + amount) # 定存多
+                        # 同步 B6 (台幣變少)
+                        ws_status.update_cell(6, 2, twd_v - amount)
+                        
                         ws_log.append_row([date_str, name, amount, "否", 0, "已入帳"]) 
                         st.success(f"✅ {name} 執行成功！")
                         time.sleep(1)
@@ -347,27 +382,14 @@ if page == "💸 隨手記帳 (本月)":
                 except: st.error("轉帳失敗")
                 return
 
+            # 一般收支
             type_str = "收入" if is_income else "否"
             cost = -amount if is_income else amount
             ws_log.append_row([date_str, name, amount, type_str, cost, "已入帳"])
             
-            try:
-                all_assets = ws_assets.get_all_records()
-                for i, r in enumerate(all_assets):
-                    if r.get('資產項目') == '台幣活存':
-                        curr = int(str(r.get('目前價值',0)).replace(',',''))
-                        change = amount if is_income else -amount
-                        ws_assets.update_cell(i+2, 2, curr + change)
-                        break
-            except: pass
-            
-            # 強制同步更新缺口到 B9
-            if ws_status:
-                try:
-                    gap_change = amount if is_income else -amount
-                    new_gap = current_gap + gap_change
-                    ws_status.update_cell(9, 2, new_gap) # 鎖定 B9
-                except: pass
+            # 全同步更新 (資產 & 缺口)
+            change = amount if is_income else -amount
+            sync_update(change, is_income)
             
             st.success(f"✅ {name} 已記錄！")
             time.sleep(1)
@@ -375,14 +397,12 @@ if page == "💸 隨手記帳 (本月)":
 
         with r_col1:
             st.markdown("**💰 收入與資產**")
-            # 1. 固定收入 ($3900, 5號)
             if current_day >= 5:
                 if not check_logged("固定收入"):
                     if st.button("📥 入帳薪水 ($3900)", key="btn_salary"): execute_auto_entry("固定收入 (薪水)", 3900, is_income=True)
                 else: st.caption("✅ 薪水已入帳")
             else: st.caption(f"⏳ 薪水: 再等 {5-current_day} 天")
 
-            # 2. 定存扣款 ($1000, 10號)
             if current_day >= 10:
                 if not check_logged("定存扣款"):
                     if st.button("🏦 轉存定存 ($1000)", key="btn_deposit"): execute_auto_entry("定存扣款", 1000, is_transfer=True)
@@ -391,26 +411,22 @@ if page == "💸 隨手記帳 (本月)":
 
         with r_col2:
             st.markdown("**💸 固定支出**")
-            # 3. 電信費 ($499, 10號)
             if current_day >= 10:
                 if not check_logged("電信費"):
                     if st.button("📱 繳電信費 ($499)", key="btn_tel"): execute_auto_entry("電信費", 499)
                 else: st.caption("✅ 電信費已繳")
             
-            # 4. YT Premium ($119, 22號)
             if current_day >= 22:
                 if not check_logged("YT Premium"):
                     if st.button("▶️ 繳 YT Premium ($119)", key="btn_ytp"): execute_auto_entry("YT Premium", 119)
                 else: st.caption("✅ YT Premium 已繳")
             
-            # 5. YT 小雪 ($75, 6號, 到2026/7)
             if current_year < 2026 or (current_year == 2026 and current_month < 7):
                 if current_day >= 6:
                     if not check_logged("小雪"):
                         if st.button("❄️ 繳小雪會員 ($75)", key="btn_koyuki"): execute_auto_entry("YT會員(小雪)", 75)
                     else: st.caption("✅ 小雪會員已繳")
             
-            # 6. 自我分期 ($2110, 直到缺口正)
             if current_gap < 0:
                 if not check_logged("自我分期"):
                     if st.button("💳 自我分期還債 ($2110)", type="primary", key="btn_debt"): execute_auto_entry("自我分期(還債)", 2110)
@@ -499,22 +515,12 @@ if page == "💸 隨手記帳 (本月)":
                     
                     ws_log.append_row([date_str, final_item_name, amount_input, is_reimbursable, actual_cost, status_val])
                     
-                    if ws_assets:
-                        try:
-                            all_assets = ws_assets.get_all_records()
-                            for ai, arow in enumerate(all_assets):
-                                if arow.get('資產項目') == '台幣活存':
-                                    curr = int(str(arow.get('目前價值', 0)).replace(',', ''))
-                                    ws_assets.update_cell(ai+2, 2, curr - amount_input)
-                                    break
-                        except: pass
-                    
-                    # 支出: 寫入 B9 (Gap - amount)
-                    if ws_status:
-                         try:
-                            new_gap_val = current_gap - amount_input
-                            ws_status.update_cell(9, 2, new_gap_val) 
-                         except: pass
+                    # 支出: 如果是已入帳(自己花)，同步扣除資產與增加缺口
+                    # 如果是未入帳(代墊)，暫不扣資產? 不，代墊錢也出去了。
+                    # v10.0邏輯：代墊未入帳=扣資產。
+                    # 所以這裡統一扣除資產
+                    change = -amount_input
+                    sync_update(change)
 
                     st.toast(f"💸 支出已記：${amount_input}")
                     
@@ -522,18 +528,12 @@ if page == "💸 隨手記帳 (本月)":
                     actual_cost = 0; status_val = "未入帳"
                     ws_log.append_row([date_str, final_item_name, amount_input, "收入", actual_cost, status_val])
                     
-                    # 收入: 寫入 B9 (Gap + amount) (收入未入帳也算潛在資產? 通常要已入帳才算)
-                    # 這裡為了邏輯一致性，如果記了收入，通常代表「預期收入」或「已發生」，暫且更新
-                    # 但更精確的邏輯是只有「已入帳」才更新資產，所以這裡先不更資產，只更 Log
-                    # 只有轉為「已入帳」時才更 Gap? 
-                    # 依你之前的需求「新增收入時缺口就要變」，所以這裡先更 Gap
-                    if ws_status:
-                         try:
-                            new_gap_val = current_gap + amount_input
-                            ws_status.update_cell(9, 2, new_gap_val) 
-                         except: pass
-                    
-                    st.toast(f"💰 收入已記：${amount_input}")
+                    # 收入: 新增時如果是「未入帳」，通常不更動資產與缺口
+                    # 只有轉「已入帳」才更動。
+                    # 但你之前的需求是「新增收入時缺口就要變」，這通常指「已入帳」的收入。
+                    # 這裡為了安全，預設未入帳的收入【不】更動資產與缺口。
+                    # 只有使用者手動切換成「已入帳」才更動。
+                    st.toast(f"💰 收入已記 (未入帳)：${amount_input}")
                 
                 time.sleep(1)
                 st.rerun()
@@ -585,36 +585,21 @@ if page == "💸 隨手記帳 (本月)":
                             new_state = not is_cleared
                             new_status_str = "已入帳" if new_state else "未入帳"
                             new_actual_cost = 0
-                            asset_change = 0
-                            gap_change = 0
+                            asset_change = 0 # 這一筆操作造成的資產變動量
                             
                             if "報帳" in txn_class:
                                 new_actual_cost = row['金額'] if not new_state else 0
+                                # 報帳: 未入帳(墊錢) -> 已入帳(還錢) : 資產+
+                                # 已入帳(還錢) -> 未入帳(墊錢) : 資產-
                                 asset_change = row['金額'] if new_state else -row['金額']
-                                gap_change = row['金額'] if new_state else -row['金額']
                             elif txn_class == "收入":
                                 new_actual_cost = -row['金額'] if new_state else 0
+                                # 收入: 未入帳 -> 已入帳 : 資產+
                                 asset_change = row['金額'] if new_state else -row['金額']
-                                gap_change = 0 # 收入的 Gap 變動在建立時已做，狀態切換只影響資產? 
-                                # 不，如果建立時只更 Gap 沒更 Asset。那現在要更 Asset。
-                                # 狀態切換通常不影響 Gap (錢還是那些錢)，只影響 Asset (實拿到手)
-                                # 但代墊還款會影響 Gap (因為錢回來了，本金恢復)
                                 
-                            if ws_assets and asset_change != 0:
-                                try:
-                                    all_assets = ws_assets.get_all_records()
-                                    for ai, ar in enumerate(all_assets):
-                                        if ar.get('資產項目') == '台幣活存':
-                                            curr = int(str(ar.get('目前價值', 0)).replace(',', ''))
-                                            ws_assets.update_cell(ai+2, 2, curr + asset_change)
-                                            break
-                                except: pass
-                            
-                            if ws_status and gap_change != 0 and "報帳" in txn_class:
-                                try:
-                                    final_gap = current_gap + gap_change
-                                    ws_status.update_cell(9, 2, final_gap) # 鎖定 B9
-                                except: pass
+                            # 執行全同步更新 (資產 + B6 + B9)
+                            if asset_change != 0:
+                                sync_update(asset_change)
 
                             if ws_log:
                                 ws_log.update_cell(real_row_idx, 5, new_actual_cost)
