@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v20.3 Fixes) ---
+# --- CSS 極致美化 (v20.4 Mobile Order Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
@@ -63,18 +63,10 @@ st.markdown("""
     .list-right { text-align: right; }
     .list-amt { font-size: 20px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
-    /* 6. 標籤 Badge (修正置中問題) */
+    /* 6. 標籤 Badge */
     .status-badge { 
-        padding: 4px 0px; /* 上下 padding，左右由 width 控制 */
-        width: 60px;      /* 固定寬度，確保整齊 */
-        font-size: 11px; 
-        font-weight: 700; 
-        border-radius: 20px; /* 更圓潤 */
-        display: inline-block; 
-        margin-right: 8px;
-        text-align: center; /* 文字水平置中 */
-        vertical-align: middle; /* 垂直對齊 */
-        line-height: 1.2;
+        padding: 4px 0px; width: 60px; font-size: 11px; font-weight: 700; border-radius: 20px; 
+        display: inline-block; margin-right: 8px; text-align: center; vertical-align: middle; line-height: 1.2;
     }
 
     /* 7. 收支模型標題 */
@@ -261,7 +253,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v20.3 (Sorted & Centered)")
+st.sidebar.caption("宇毛的記帳本 v20.4 (Mobile Order Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -405,7 +397,6 @@ elif page == "🛍️ 購物冷靜清單":
             with st.expander(f"🛒 **{n}** - ${p}"):
                 c1, c2 = st.columns([4, 1])
                 with c1:
-                    # 美化決策與備註
                     st.markdown(f"""
                     <div style="margin-bottom:8px; display:flex; align-items:center;">
                         {make_badge(d, 'red' if d=='延後' else 'green')}
@@ -465,29 +456,29 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估 (排序與顯示修復)
+# 📅 頁面 4：未來推估 (Mobile Fix + Sort)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 財務預測")
     if not df_future.empty:
-        # 1. 複製資料以免影響原始 DF
         valid_df = df_future[~df_future['月份 (A)'].astype(str).str.contains("初始")].copy()
         
-        # 2. 排序邏輯：提取「期數 (B)」中的數字
+        # 1. 排序邏輯：提取期數數字
         def get_period_num(x):
             try: return int(''.join(filter(str.isdigit, str(x))))
             except: return 999
-        
         valid_df['SortKey'] = valid_df['期數 (B)'].apply(get_period_num)
         valid_df = valid_df.sort_values('SortKey')
 
-        # 3. 顯示
-        cols = st.columns(3)
-        for i, (idx, row) in enumerate(valid_df.iterrows()):
-            with cols[i % 3]:
-                st.markdown(f"""<div class="asset-box"><div style="font-weight:bold;margin-bottom:5px;">{row['月份 (A)']}</div><div style="font-size:12px;opacity:0.7;">目標: ${row['目標應有餘額 (E)']}</div><div style="font-size:18px;color:#a78bfa;font-weight:800;">${row['預估實際餘額 (D)']}</div></div>""", unsafe_allow_html=True)
+        # 2. 分組顯示邏輯 (Mobile Friendly)
+        # 每 3 個一組，強制換行
+        for i in range(0, len(valid_df), 3):
+            batch = valid_df.iloc[i : i+3]
+            cols = st.columns(3)
+            for j, (idx, row) in enumerate(batch.iterrows()):
+                with cols[j]:
+                    st.markdown(f"""<div class="asset-box"><div style="font-weight:bold;margin-bottom:5px;">{row['月份 (A)']}</div><div style="font-size:12px;opacity:0.7;">目標: ${row['目標應有餘額 (E)']}</div><div style="font-size:18px;color:#a78bfa;font-weight:800;">${row['預估實際餘額 (D)']}</div></div>""", unsafe_allow_html=True)
         
-        # 強制顯示最後一個月
         try:
             last = valid_df.iloc[-1]
             st.markdown("---")
