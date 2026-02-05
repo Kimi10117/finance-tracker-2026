@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v13.1 Layout Fix) ---
+# --- CSS 極致美化 (v13.2 Display Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -49,9 +49,9 @@ st.markdown("""
         letter-spacing: 0.5px;
         text-transform: uppercase;
         margin-bottom: 6px;
-        white-space: nowrap; /* 強制標題不換行 */
-        overflow: hidden;
-        text-overflow: ellipsis;
+        /* 移除強制不換行，允許長標題自然顯示 */
+        white-space: normal; 
+        line-height: 1.2;
     }
     
     .card-value {
@@ -60,7 +60,8 @@ st.markdown("""
         color: var(--text-color);
         letter-spacing: -0.5px;
         line-height: 1.2;
-        white-space: nowrap; /* 強制數值不換行 */
+        /* 數值保持單行，避免破版 */
+        white-space: nowrap; 
     }
     
     .card-note {
@@ -70,7 +71,8 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 4px;
-        white-space: nowrap; /* 強制註解不換行 */
+        /* 註解允許換行 */
+        white-space: normal; 
     }
 
     /* === 進度條樣式 === */
@@ -97,8 +99,8 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         border: 1px solid rgba(128, 128, 128, 0.1);
     }
-    .asset-val { font-size: 20px; font-weight: 700; color: var(--text-color); white-space: nowrap; }
-    .asset-lbl { font-size: 12px; color: var(--text-color); opacity: 0.7; font-weight: 600; margin-top: 4px; white-space: nowrap; }
+    .asset-val { font-size: 20px; font-weight: 700; color: var(--text-color); }
+    .asset-lbl { font-size: 12px; color: var(--text-color); opacity: 0.7; font-weight: 600; margin-top: 4px; }
 
     /* === 交易明細優化 === */
     .list-item {
@@ -121,7 +123,7 @@ st.markdown("""
         font-weight: 700;
         border-radius: 12px;
         margin-top: 4px;
-        white-space: nowrap; /* 標籤不換行 */
+        white-space: nowrap; 
     }
     .badge-gray { background: rgba(136, 152, 170, 0.2); color: var(--text-color); opacity: 0.8; }
     .badge-orange { background: rgba(251, 99, 64, 0.15); color: #fb6340; }
@@ -152,29 +154,32 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* === Radio Button 優化 (關鍵修復) === */
+    /* === Radio Button 優化 (關鍵修復：允許換行但保持對齊) === */
     div[role="radiogroup"] {
         background-color: var(--secondary-background-color);
         padding: 4px;
         border-radius: 12px;
         border: 1px solid rgba(128, 128, 128, 0.1);
         display: flex;
-        flex-wrap: nowrap; /* 禁止換行 */
-        overflow: hidden;
+        flex-direction: row; /* 預設橫向 */
+        gap: 2px;
     }
     div[role="radiogroup"] label {
         flex: 1;
         text-align: center;
         background-color: transparent;
         border: none;
-        padding: 8px 4px; /* 減少左右內距 */
+        padding: 8px 6px;
         border-radius: 8px;
         transition: all 0.2s;
         color: var(--text-color);
-        white-space: nowrap; /* 文字禁止換行 */
-        overflow: hidden;
-        text-overflow: ellipsis; /* 太長顯示... */
-        font-size: 14px; /* 稍微縮小字體以適應 */
+        
+        /* 關鍵：允許文字換行，但垂直置中 */
+        white-space: normal !important; 
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px; /* 確保有足夠高度 */
     }
     div[role="radiogroup"] label[data-checked="true"] {
         background-color: rgba(128, 128, 128, 0.1);
@@ -182,8 +187,10 @@ st.markdown("""
         color: #5e72e4;
     }
     div[role="radiogroup"] label p {
-        font-weight: inherit; /* 讓文字繼承粗體 */
-        margin: 0; /* 移除段落預設邊距 */
+        font-weight: inherit;
+        margin: 0;
+        line-height: 1.2; /* 讓多行文字稍微緊湊一點 */
+        font-size: 14px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -217,7 +224,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v13.1 (Layout Fix)")
+st.sidebar.caption("宇毛的記帳本 v13.2 (Text Fix)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -360,7 +367,6 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
-    # 文字精簡化，避免換行
     txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True, label_visibility="collapsed")
     
     with st.form("expense_form", clear_on_submit=True):
@@ -375,8 +381,8 @@ if page == "💸 隨手記帳 (本月)":
         reimburse_target = ""
         
         if "支出" in txn_type:
-            # 選項精簡化，避免換行
-            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (代墊)"], horizontal=True)
+            # 完整選項，現在 CSS 支援換行顯示了
+            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (報帳/幫朋友付)"], horizontal=True)
             if "是" in is_reimbursable:
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
                 reimburse_target = st.text_input("幫誰代墊？", placeholder="例如: Andy")
