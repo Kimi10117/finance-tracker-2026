@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v18.0 Logic Fix) ---
+# --- CSS 極致美化 (v18.1 Self-Installment Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -276,11 +276,9 @@ if not df_log.empty:
     current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
     current_month_logs['項目'] = current_month_logs['項目'].astype(str)
     
-    # 過濾變動支出
     variable_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[variable_mask]['實際消耗'].sum())
     
-    # 過濾未入帳代墊
     pending_filter = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
     pending_debt = int(current_month_logs[pending_filter]['金額'].sum())
 
@@ -323,7 +321,24 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
     if not ws_log: return
     date_str = now_dt.strftime("%m/%d")
     
-    if is_transfer: # 定存轉帳
+    # 🔴 特殊處理：自我分期 (還債)
+    # 邏輯：記一筆帳，不扣資產，但補缺口 (缺口變大/變好)
+    if name == "自我分期(還債)":
+        ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
+        try:
+            # 讀取當前 Gap -> 加上還款金額 (缺口補回) -> 寫回 B9
+            # 不更新資產 (因為錢還在)
+            if ws_status:
+                curr_gap_val = int(str(ws_status.cell(9, 2).value).replace(',', ''))
+                ws_status.update_cell(9, 2, curr_gap_val + amount)
+        except: pass
+        st.toast(f"✅ {name} 已執行！(資產未扣，缺口已補)")
+        time.sleep(1)
+        st.rerun()
+        return
+
+    # 定存轉帳 (資產互轉)
+    if is_transfer: 
         try:
             all_assets = ws_assets.get_all_records()
             twd_r, fix_r, twd_v, fix_v = -1, -1, 0, 0
@@ -341,7 +356,7 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
         except: pass
         return
 
-    # 一般固定收支
+    # 一般固定收支 (薪水、電信、YT) -> 正常扣款
     is_income = (type_code == "固定收入")
     change = amount if is_income else -amount
     ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
@@ -352,27 +367,17 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
 
 # 收集待辦事項
 pending_tasks = []
-
-# 1. 薪水 (5號)
 if current_day >= 5 and not check_logged("固定收入"):
     pending_tasks.append({"name": "📥 入帳薪水 ($3900)", "type": "fixed_in", "amt": 3900, "desc": "固定收入 (薪水)"})
-
-# 2. 定存 (10號)
 if current_day >= 10 and not check_logged("定存扣款"):
     pending_tasks.append({"name": "🏦 轉存定存 ($1000)", "type": "transfer", "amt": 1000, "desc": "定存扣款"})
-
-# 3. 固定支出 (10號, 22號)
 if current_day >= 10 and not check_logged("電信費"):
     pending_tasks.append({"name": "📱 繳電信費 ($499)", "type": "fixed_out", "amt": 499, "desc": "電信費"})
 if current_day >= 22 and not check_logged("YT Premium"):
     pending_tasks.append({"name": "▶️ 繳 YT Premium ($119)", "type": "fixed_out", "amt": 119, "desc": "YT Premium"})
-
-# 4. 小雪 (6號, 直到2026/7)
 if (current_year < 2026 or (current_year == 2026 and current_month < 7)) and current_day >= 6 and not check_logged("小雪"):
     pending_tasks.append({"name": "❄️ 繳小雪會員 ($75)", "type": "fixed_out", "amt": 75, "desc": "YT會員(小雪)"})
-
-# 5. 自我分期還債 (5號, 直到2026/7)
-# 修正邏輯：跟隨薪水日(5號)，且持續到 2026/7 結束
+# 自我分期還債 (修正：每月5號固定出現，直到2026/7)
 if (current_year < 2026 or (current_year == 2026 and current_month <= 7)) and current_day >= 5 and not check_logged("自我分期"):
     pending_tasks.append({"name": "💳 自我分期還債 ($2110)", "type": "fixed_out", "amt": 2110, "desc": "自我分期(還債)"})
 
@@ -386,7 +391,6 @@ if pending_tasks:
             execute_auto_entry(task["desc"], task["amt"], t_code, is_trans)
     st.sidebar.markdown("---")
 
-# 顯示主選單
 page = st.sidebar.radio("請選擇功能", [
     "💸 隨手記帳 (本月)", 
     "🛍️ 購物冷靜清單", 
@@ -395,15 +399,14 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v17.1 (Sidebar Routine)")
+st.sidebar.caption("宇毛的記帳本 v18.1 (Self-Installment Fix)")
 
 # ==========================================
-# 🏠 頁面 1：隨手記帳 (主畫面)
+# 🏠 頁面 1：隨手記帳
 # ==========================================
 if page == "💸 隨手記帳 (本月)":
     st.subheader(f"👋 {current_month} 月財務面板")
     
-    # 儀表板
     col1, col2, col3, col4 = st.columns(4)
     gap_progress = 0.0
     if current_gap < 0:
@@ -500,7 +503,6 @@ if page == "💸 隨手記帳 (本月)":
             
             status = str(row.get('已入帳', '已入帳')).strip() or "已入帳"
             
-            # 視覺邏輯
             badge_color = "gray"
             text_color = "var(--text-color)"
             prefix = "$"
