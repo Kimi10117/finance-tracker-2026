@@ -5,127 +5,57 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import time
 
-# --- 設定頁面資訊 (必須是第一行) ---
+# --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 強制注入 (v19.1 Fix) ---
-# 不使用函數，直接執行以確保載入
+# --- CSS 強制注入 (v19.2 Logic Fix) ---
 st.markdown("""
 <style>
     /* === 1. 全局基礎設定 === */
     .stApp {
-        background-color: #0e1117 !important; /* 強制深色底，避免跑版 */
+        background-color: #0e1117 !important;
         color: #fafafa !important;
     }
-    
-    /* 隱藏預設元件 */
     #MainMenu, footer, header {visibility: hidden;}
-    
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 5rem;
-    }
+    .block-container { padding-top: 2rem; padding-bottom: 5rem; }
 
-    /* === 2. 萬用卡片樣式 (核心) === */
+    /* === 2. 萬用卡片樣式 === */
     .custom-card {
-        background-color: #262730 !important; /* 強制深灰底 */
+        background-color: #262730 !important;
         padding: 20px !important;
         border-radius: 15px !important;
         border: 1px solid rgba(250, 250, 250, 0.1) !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
         margin-bottom: 15px;
     }
-    
-    .card-title {
-        font-size: 14px;
-        color: rgba(250, 250, 250, 0.7);
-        font-weight: 700;
-        text-transform: uppercase;
-        margin-bottom: 8px;
-    }
-    
-    .card-value {
-        font-size: 28px;
-        font-weight: 800;
-        color: #ffffff;
-        margin-bottom: 5px;
-    }
-    
-    .card-note {
-        font-size: 12px;
-        font-weight: 500;
-        opacity: 0.9;
-    }
+    .card-title { font-size: 14px; color: rgba(250, 250, 250, 0.7); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 800; color: #ffffff; margin-bottom: 5px; }
+    .card-note { font-size: 12px; font-weight: 500; opacity: 0.9; }
 
     /* === 3. 進度條 === */
-    .progress-bg {
-        width: 100%;
-        height: 6px;
-        background-color: rgba(255,255,255,0.1);
-        border-radius: 3px;
-        margin-top: 12px;
-        overflow: hidden;
-    }
-    .progress-fill {
-        height: 100%;
-        border-radius: 3px;
-    }
+    .progress-bg { width: 100%; height: 6px; background-color: rgba(255,255,255,0.1); border-radius: 3px; margin-top: 12px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; }
 
-    /* === 4. 資產小方塊 (未來推估用) === */
+    /* === 4. 資產小方塊 === */
     .asset-box {
-        background-color: #1f2937 !important;
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.1);
-        text-align: center;
-        margin-bottom: 10px;
+        background-color: #1f2937 !important; padding: 15px; border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.1); text-align: center; margin-bottom: 10px;
     }
 
     /* === 5. 列表項目 === */
     .list-row {
-        background-color: #1f2937 !important;
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 8px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        background-color: #1f2937 !important; padding: 15px; border-radius: 12px;
+        margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        display: flex; justify-content: space-between; align-items: center;
     }
 
     /* === 6. 標籤 Badge === */
-    .status-badge {
-        padding: 4px 10px;
-        font-size: 11px;
-        font-weight: 700;
-        border-radius: 12px;
-    }
+    .status-badge { padding: 4px 10px; font-size: 11px; font-weight: 700; border-radius: 12px; }
 
-    /* === 7. 按鈕與輸入框優化 === */
-    .stButton > button {
-        border-radius: 10px !important;
-        font-weight: bold !important;
-        border: none !important;
-        background-color: #374151 !important;
-        color: white !important;
-        transition: all 0.2s;
-    }
-    .stButton > button:hover {
-        background-color: #4b5563 !important;
-        transform: scale(1.02);
-    }
-    
-    /* 輸入框背景 */
-    .stTextInput > div > div > input {
-        background-color: #1f2937 !important;
-        color: white !important;
-        border-radius: 10px;
-    }
-    
-    /* 側邊欄樣式修正 */
-    section[data-testid="stSidebar"] {
-        background-color: #111827 !important;
-    }
+    /* === 7. 元件優化 === */
+    .stButton > button { border-radius: 10px !important; background-color: #374151 !important; color: white !important; border: none !important; }
+    .stTextInput > div > div > input { background-color: #1f2937 !important; color: white !important; border-radius: 10px; }
+    section[data-testid="stSidebar"] { background-color: #111827 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -134,19 +64,13 @@ st.markdown("""
 def connect_to_gsheet():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if "gcp_service_account" in st.secrets:
-        creds_dict = st.secrets["gcp_service_account"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     else:
         creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
-    client = gspread.authorize(creds)
-    sheet = client.open("宇毛的財務追蹤表_2026")
-    return sheet
+    return gspread.authorize(creds).open("宇毛的財務追蹤表_2026")
 
-try:
-    sh = connect_to_gsheet()
-except Exception as e:
-    st.error(f"連線錯誤: {e}")
-    st.stop()
+try: sh = connect_to_gsheet()
+except: st.stop()
 
 # --- 讀取資料 ---
 def get_data(ws_name, head=1):
@@ -155,37 +79,15 @@ def get_data(ws_name, head=1):
         return pd.DataFrame(ws.get_all_records(head=head)), ws
     except: return pd.DataFrame(), None
 
-# --- UI 元件生成器 (Inline Style 備援) ---
+# --- UI 元件 ---
 def make_card(title, value, note, color="gray", progress=None):
-    colors = {
-        "blue": "#60a5fa", "red": "#f87171", "green": "#34d399", 
-        "orange": "#fbbf24", "gray": "#9ca3af", "purple": "#a78bfa"
-    }
+    colors = {"blue": "#60a5fa", "red": "#f87171", "green": "#34d399", "orange": "#fbbf24", "gray": "#9ca3af", "purple": "#a78bfa"}
     c_hex = colors.get(color, "#9ca3af")
-    
-    prog_html = ""
-    if progress is not None:
-        pct = min(max(float(progress), 0.0), 1.0) * 100
-        prog_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {c_hex};"></div></div>'
-    
-    return f"""
-    <div class="custom-card">
-        <div class="card-title" style="color:{c_hex}">{title}</div>
-        <div class="card-value">{value}</div>
-        <div class="card-note" style="color:{c_hex}">{note}</div>
-        {prog_html}
-    </div>
-    """
+    prog_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {min(max(float(progress or 0),0),1)*100}%; background-color: {c_hex};"></div></div>' if progress is not None else ""
+    return f"""<div class="custom-card"><div class="card-title" style="color:{c_hex}">{title}</div><div class="card-value">{value}</div><div class="card-note" style="color:{c_hex}">{note}</div>{prog_html}</div>"""
 
 def make_badge(text, color="gray"):
-    c_map = {
-        "green": ("rgba(16, 185, 129, 0.2)", "#34d399"),
-        "red": ("rgba(239, 68, 68, 0.2)", "#f87171"),
-        "blue": ("rgba(59, 130, 246, 0.2)", "#60a5fa"),
-        "orange": ("rgba(245, 158, 11, 0.2)", "#fbbf24"),
-        "purple": ("rgba(139, 92, 246, 0.2)", "#a78bfa"),
-        "gray": ("rgba(107, 114, 128, 0.2)", "#d1d5db")
-    }
+    c_map = {"green": ("rgba(16, 185, 129, 0.2)", "#34d399"), "red": ("rgba(239, 68, 68, 0.2)", "#f87171"), "blue": ("rgba(59, 130, 246, 0.2)", "#60a5fa"), "purple": ("rgba(139, 92, 246, 0.2)", "#a78bfa"), "gray": ("rgba(107, 114, 128, 0.2)", "#d1d5db")}
     bg, fg = c_map.get(color, c_map["gray"])
     return f'<span class="status-badge" style="background-color:{bg}; color:{fg};">{text}</span>'
 
@@ -204,15 +106,13 @@ df_future, _ = get_data("未來四個月推估")
 
 if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-# 取得缺口 B9
+# 缺口 B9
 try:
-    if ws_status:
-        gap_val = ws_status.cell(9, 2).value 
-        base_gap_static = int(str(gap_val).replace(',', ''))
+    if ws_status: base_gap_static = int(str(ws_status.cell(9, 2).value).replace(',', ''))
     else: base_gap_static = -9999
 except: base_gap_static = -9999
 
-# 計算本月數據
+# 計算數據
 total_variable_expenses = 0
 pending_debt = 0
 current_month_logs = pd.DataFrame()
@@ -228,22 +128,19 @@ if not df_log.empty:
     current_month_logs = df_log[df_log['Month'] == current_month].copy()
     current_month_logs['實際消耗'] = pd.to_numeric(current_month_logs['實際消耗'], errors='coerce').fillna(0)
     current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
+    current_month_logs['項目'] = current_month_logs['項目'].astype(str)
     
-    # 變動支出
     v_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[v_mask]['實際消耗'].sum())
-    
-    # 未入帳代墊
     p_mask = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
     pending_debt = int(current_month_logs[p_mask]['金額'].sum())
 
-# 核心指標
 current_gap = base_gap_static
 base_budget = 97 if current_month == 2 else 2207
 surplus_from_gap = max(0, current_gap)
 remaining = (base_budget + surplus_from_gap) - total_variable_expenses
 
-# --- 同步函式 ---
+# 同步函式
 def sync_update(amount_change):
     if not ws_assets or not ws_status: return
     try:
@@ -255,10 +152,9 @@ def sync_update(amount_change):
                 new_twd = curr + amount_change
                 ws_assets.update_cell(i+2, 2, new_twd)
                 break
-        
-        ws_status.update_cell(6, 2, new_twd) # B6
+        ws_status.update_cell(6, 2, new_twd)
         curr_gap = int(str(ws_status.cell(9, 2).value).replace(',', ''))
-        ws_status.update_cell(9, 2, curr_gap + amount_change) # B9
+        ws_status.update_cell(9, 2, curr_gap + amount_change)
     except: pass
 
 # ==========================================
@@ -274,7 +170,6 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
     if not ws_log: return
     date_str = now_dt.strftime("%m/%d")
     
-    # 自我分期 (特殊)
     if name == "自我分期(還債)":
         ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
         if ws_status:
@@ -284,7 +179,6 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
             except: pass
         st.toast(f"✅ {name} 已執行！"); time.sleep(1); st.rerun(); return
 
-    # 定存轉帳
     if is_transfer:
         try:
             all = ws_assets.get_all_records()
@@ -301,7 +195,6 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
         except: pass
         return
 
-    # 一般固定
     is_inc = (type_code == "固定收入")
     change = amount if is_inc else -amount
     ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
@@ -327,7 +220,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v19.1 (CSS Fix)")
+st.sidebar.caption("宇毛的記帳本 v19.2 (Logic Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -336,12 +229,10 @@ if page == "💸 隨手記帳 (本月)":
     st.subheader(f"👋 {current_month} 月財務面板")
     
     c1, c2, c3, c4 = st.columns(4)
-    
     gap_note = "收入優先抵債" if current_gap < 0 else "溢出至額度"
     gap_color = "orange" if current_gap < 0 else "green"
     try: gap_pct = 1.0 - (abs(current_gap) / 3000)
     except: gap_pct = 0
-    
     rem_color = "green"
     if remaining < 0: rem_color = "red"
     elif remaining < 50: rem_color = "orange"
@@ -369,10 +260,8 @@ if page == "💸 隨手記帳 (本月)":
         
         if "支出" in txn_type:
             is_reim = col4.radio("是否代墊?", ["否", "是"], horizontal=True)
-            if is_reim == "是": 
-                target = st.text_input("幫誰代墊?", placeholder="Andy")
-        else:
-            st.caption("ℹ️ 收入預設 **未入帳**")
+            if is_reim == "是": target = st.text_input("幫誰代墊?", placeholder="Andy")
+        else: st.caption("ℹ️ 收入預設 **未入帳**")
             
         if st.form_submit_button("確認記帳", use_container_width=True, type="primary") and ws_log:
             if n_in and a_in > 0:
@@ -402,38 +291,45 @@ if page == "💸 隨手記帳 (本月)":
             sta = str(row.get('已入帳', '已入帳')).strip() or "已入帳"
             
             b_clr, t_clr, pfx = "gray", "#e5e7eb", "$"
-            if cls == "收入": 
-                b_clr = "green" if sta=="已入帳" else "gray"
-                t_clr = "#34d399" if sta=="已入帳" else "#e5e7eb"
-                pfx = "+$"
-            elif cls == "報帳/代墊": 
-                b_clr = "purple" if sta=="未入帳" else "gray"
-                t_clr = "#a78bfa" if sta=="未入帳" else "#e5e7eb"
-            elif cls == "固定收支": 
-                b_clr = "blue"; t_clr = "#60a5fa"
-            else: 
-                t_clr = "#f87171"; pfx = "-$"
+            if cls == "收入": b_clr, t_clr, pfx = "green" if sta=="已入帳" else "gray", "#34d399" if sta=="已入帳" else "#e5e7eb", "+$"
+            elif cls == "報帳/代墊": b_clr, t_clr = "purple" if sta=="未入帳" else "gray", "#a78bfa" if sta=="未入帳" else "#e5e7eb"
+            elif cls == "固定收支": b_clr, t_clr = "blue", "#60a5fa"
+            else: t_clr, pfx = "#f87171", "-$"
 
             with st.container():
                 c1, c2, c3 = st.columns([3, 1.5, 1.2])
-                c1.markdown(f"""<div class="list-row"><div style="flex:1;">
-                    <span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span><br>
-                    <span style="font-weight:700;">{row['項目']}</span><br>
-                    {make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span>
-                </div></div>""", unsafe_allow_html=True)
+                c1.markdown(f"""<div class="list-row"><div style="flex:1;"><span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span><br><span style="font-weight:700;">{row['項目']}</span><br>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div></div>""", unsafe_allow_html=True)
                 c2.markdown(f"<div style='margin-top:10px;'><span style='color:{t_clr}; font-weight:800; font-size:1.2em;'>{pfx}{row['金額']}</span></div>", unsafe_allow_html=True)
                 
                 if cls in ["報帳/代墊", "收入"]:
                     is_clr = (sta == "已入帳")
                     lbl = "已結清" if "報帳" in cls else "已入帳"
                     if c3.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
-                        new_s = "未入帳" if is_clr else "已入帳"
-                        chg = 0
-                        if "報帳" in cls: chg = row['金額'] if not is_clr else -row['金額']
-                        elif cls == "收入": chg = row['金額'] if not is_clr else -row['金額']
+                        new_state = not is_clr
+                        new_s = "已入帳" if new_state else "未入帳"
                         
+                        # --- 核心邏輯修正 (v19.2) ---
+                        # 1. 計算新的實際消耗 (Actual Cost)
+                        new_act = 0 # 預設 0
+                        chg = 0     # 資產變動量
+                        
+                        if "報帳" in cls:
+                            # 報帳: 已入帳=0消耗; 未入帳=全額消耗
+                            new_act = 0 if new_state else row['金額']
+                            # 資產: 未->已(錢回來 +); 已->未(錢消失 -)
+                            chg = row['金額'] if new_state else -row['金額']
+                        
+                        elif cls == "收入":
+                            # 收入: 已入帳=-金額(收益); 未入帳=0
+                            new_act = -row['金額'] if new_state else 0
+                            # 資產: 未->已(錢進來 +); 已->未(錢移除 -)
+                            chg = row['金額'] if new_state else -row['金額']
+                        
+                        # 2. 執行更新
                         if chg != 0: sync_update(chg)
-                        ws_log.update_cell(real_idx, 6, new_s)
+                        ws_log.update_cell(real_idx, 5, new_act) # 更新 Col 5 (實際消耗)
+                        ws_log.update_cell(real_idx, 6, new_s)   # 更新 Col 6 (狀態)
+                        
                         st.success("已更新"); time.sleep(0.5); st.rerun()
         st.markdown("---")
 
@@ -476,9 +372,9 @@ elif page == "📊 資產與收支":
         tot = int(str(ad.get('總資產', 0)).replace(',',''))
         st.markdown(make_card("目前總身價", f"${tot:,}", "含所有資產", "blue"), unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f"""<div class="asset-box"><div class="asset-num">${ad.get('台幣活存',0)}</div><div class="asset-desc">🇹🇼 台幣活存</div></div>""", unsafe_allow_html=True)
-        with c2: st.markdown(f"""<div class="asset-box"><div class="asset-num">¥{ad.get('日幣帳戶',0)}</div><div class="asset-desc">🇯🇵 日幣帳戶</div></div>""", unsafe_allow_html=True)
-        with c3: st.markdown(f"""<div class="asset-box"><div class="asset-num">${ad.get('定存累計',0)}</div><div class="asset-desc">🏦 定存累計</div></div>""", unsafe_allow_html=True)
+        with c1: st.markdown(f"""<div class="asset-box"><div class="asset-val">${ad.get('台幣活存',0)}</div><div class="asset-lbl">🇹🇼 台幣活存</div></div>""", unsafe_allow_html=True)
+        with c2: st.markdown(f"""<div class="asset-box"><div class="asset-val">¥{ad.get('日幣帳戶',0)}</div><div class="asset-lbl">🇯🇵 日幣帳戶</div></div>""", unsafe_allow_html=True)
+        with c3: st.markdown(f"""<div class="asset-box"><div class="asset-val">${ad.get('定存累計',0)}</div><div class="asset-lbl">🏦 定存累計</div></div>""", unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("📉 每月固定收支")
@@ -501,8 +397,6 @@ elif page == "📅 未來推估":
         for i, (idx, row) in enumerate(valid_df.iterrows()):
             with cols[i % 3]:
                 st.markdown(f"""<div class="asset-box"><div style="font-weight:bold;margin-bottom:5px;">{row['月份 (A)']}</div><div style="font-size:12px;opacity:0.7;">目標: ${row['目標應有餘額 (E)']}</div><div style="font-size:18px;color:#a78bfa;font-weight:800;">${row['預估實際餘額 (D)']}</div></div>""", unsafe_allow_html=True)
-        
-        # 強制顯示最後一個月
         try:
             last = valid_df.iloc[-1]
             st.markdown("---")
