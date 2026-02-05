@@ -8,12 +8,17 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v20.1 Spacing Fix) ---
+# --- CSS 極致美化 (v20.2 Menu Fix) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
     .stApp { background-color: #0e1117 !important; color: #fafafa !important; }
-    #MainMenu, footer, header {visibility: hidden;}
+    
+    /* ⬇️ 修正處：只隱藏 footer 和 主選單的三點，保留 header 以便顯示側邊欄按鈕 */
+    #MainMenu {visibility: hidden;} 
+    footer {visibility: hidden;}
+    /* header {visibility: hidden;}  <-- 這行刪除了，找回你的選單按鈕 */
+    
     .block-container { padding-top: 2rem; padding-bottom: 5rem; }
 
     /* 2. 萬用卡片 (間距加大) */
@@ -23,8 +28,6 @@ st.markdown("""
         border-radius: 15px !important;
         border: 1px solid rgba(250, 250, 250, 0.1) !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
-        
-        /* ⬇️ 這裡調整了間距 */
         margin-bottom: 24px !important; 
     }
     .card-title { font-size: 13px; color: rgba(250, 250, 250, 0.7); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
@@ -47,15 +50,12 @@ st.markdown("""
     }
     .asset-desc { font-size: 12px; opacity: 0.6; font-weight: 600; }
 
-    /* 5. 列表項目 (間距也微調) */
+    /* 5. 列表項目 */
     .list-row {
         background-color: #1f2937 !important;
         padding: 12px 20px;
         border-radius: 12px;
-        
-        /* ⬇️ 列表之間的間距也稍微加大，看起來更舒服 */
         margin-bottom: 8px; 
-        
         border: 1px solid rgba(255,255,255,0.1);
         display: flex;
         justify-content: space-between;
@@ -153,7 +153,9 @@ current_month_logs = pd.DataFrame()
 if not df_log.empty:
     def robust_month_parser(x):
         try: return pd.to_datetime(str(x), format='%m/%d').month
-        except: return current_month 
+        except:
+            try: return pd.to_datetime(str(x)).month
+            except: return current_month 
 
     df_log['Month'] = df_log['日期'].apply(robust_month_parser)
     current_month_logs = df_log[df_log['Month'] == current_month].copy()
@@ -251,7 +253,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v20.1 (Spacing Fix)")
+st.sidebar.caption("宇毛的記帳本 v20.2 (Menu Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -328,43 +330,28 @@ if page == "💸 隨手記帳 (本月)":
             else: t_clr, pfx = "#f87171", "-$"
 
             with st.container():
-                c_row, c_act = st.columns([6, 1])
+                c1, c2, c3 = st.columns([3, 1.5, 1.2])
+                c1.markdown(f"""<div class="list-row"><div class="list-left"><span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span><span style="font-weight:700; font-size:1.05em;">{row['項目']}</span><div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div></div><div class="list-right"><span class="list-amt" style="color:{t_clr};">{pfx}{row['金額']}</span></div></div>""", unsafe_allow_html=True)
                 
-                with c_row:
-                    st.markdown(f"""
-                    <div class="list-row">
-                        <div class="list-left">
-                            <span style="font-size:0.85em; opacity:0.6;">{row['日期']}</span>
-                            <span style="font-weight:700; font-size:1.05em;">{row['項目']}</span>
-                            <div>{make_badge(sta, b_clr)} <span style="font-size:0.8em; opacity:0.5;">{cls}</span></div>
-                        </div>
-                        <div class="list-right">
-                            <span class="list-amt" style="color:{t_clr};">{pfx}{row['金額']}</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with c_act:
-                    st.write("") 
-                    if cls in ["報帳/代墊", "收入"]:
-                        is_clr = (sta == "已入帳")
-                        lbl = "已結清" if "報帳" in cls else "已入帳"
-                        if st.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
-                            new_state = not is_clr
-                            new_s = "已入帳" if new_state else "未入帳"
-                            new_act, chg = 0, 0
-                            
-                            if "報帳" in cls:
-                                new_act = 0 if new_state else row['金額']
-                                chg = row['金額'] if new_state else -row['金額']
-                            elif cls == "收入":
-                                new_act = -row['金額'] if new_state else 0
-                                chg = row['金額'] if new_state else -row['金額']
-                            
-                            if chg != 0: sync_update(chg)
-                            ws_log.update_cell(real_idx, 5, new_act)
-                            ws_log.update_cell(real_idx, 6, new_s)
-                            st.success("已更新"); time.sleep(0.5); st.rerun()
+                if cls in ["報帳/代墊", "收入"]:
+                    is_clr = (sta == "已入帳")
+                    lbl = "已結清" if "報帳" in cls else "已入帳"
+                    if c3.toggle(lbl, value=is_clr, key=f"tg_{idx}") != is_clr:
+                        new_state = not is_clr
+                        new_s = "已入帳" if new_state else "未入帳"
+                        new_act, chg = 0, 0
+                        
+                        if "報帳" in cls:
+                            new_act = 0 if new_state else row['金額']
+                            chg = row['金額'] if new_state else -row['金額']
+                        elif cls == "收入":
+                            new_act = -row['金額'] if new_state else 0
+                            chg = row['金額'] if new_state else -row['金額']
+                        
+                        if chg != 0: sync_update(chg)
+                        ws_log.update_cell(real_idx, 5, new_act)
+                        ws_log.update_cell(real_idx, 6, new_s)
+                        st.success("已更新"); time.sleep(0.5); st.rerun()
         st.markdown("---")
 
 # ==========================================
@@ -394,13 +381,7 @@ elif page == "🛍️ 購物冷靜清單":
             n = row.get('物品名稱', '未命名'); p = row.get('預估價格', 0); d = row.get('最終決策', '考慮'); nt = row.get('備註', '')
             with st.expander(f"🛒 **{n}** - ${p}"):
                 c1, c2 = st.columns([4, 1])
-                with c1:
-                    st.markdown(f"""
-                    <div style="margin-bottom:8px;">
-                        {make_badge(d, 'red' if d=='延後' else 'green')}
-                        <span style="opacity:0.7; margin-left:10px;">{nt}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with c1: st.markdown(f"""<div style="margin-bottom:8px;">{make_badge(d, 'red' if d=='延後' else 'green')} <span style="opacity:0.7; margin-left:10px;">{nt}</span></div>""", unsafe_allow_html=True)
                 with c2: 
                     if st.button("🗑️ 刪除", key=f"del_{i}", type="primary"): 
                         ws_shop.delete_rows(i+2); st.toast("已刪除"); time.sleep(1); st.rerun()
