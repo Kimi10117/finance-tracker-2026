@@ -8,7 +8,7 @@ import time
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v13.3 Stable Fix) ---
+# --- CSS 極致美化 (v13.4 Text Polish) ---
 st.markdown("""
 <style>
     /* 1. 全局背景與變數適配 */
@@ -147,10 +147,32 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* === 重置 Radio Button 樣式 (解決左側選單壞掉問題) === */
-    /* 我們不再對全局 radio 進行侵入式修改，只針對特定 class */
+    /* === Radio Button 優化 === */
+    div[role="radiogroup"] {
+        background-color: var(--secondary-background-color);
+        padding: 5px;
+        border-radius: 12px;
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        display: flex;
+        justify-content: space-between;
+    }
+    div[role="radiogroup"] label {
+        flex: 1;
+        text-align: center;
+        background-color: transparent;
+        border: none;
+        padding: 8px;
+        border-radius: 8px;
+        transition: all 0.2s;
+        color: var(--text-color);
+    }
+    div[role="radiogroup"] label[data-checked="true"] {
+        background-color: rgba(128, 128, 128, 0.1);
+        font-weight: bold;
+        color: #5e72e4;
+    }
     
-    /* 針對表單內的 Radio 進行微調 (不影響 Sidebar) */
+    /* 針對 stRadio 內部 label 加粗，但不影響全局 sidebar */
     .stRadio > label {
         font-weight: bold;
     }
@@ -186,7 +208,7 @@ page = st.sidebar.radio("請選擇功能", [
     "🗓️ 歷史帳本回顧"
 ])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v13.3 (Stable)")
+st.sidebar.caption("宇毛的記帳本 v13.4 (Text Polish)")
 
 # --- 讀取資料函式 ---
 def get_data(worksheet_name, head=1):
@@ -329,7 +351,6 @@ if page == "💸 隨手記帳 (本月)":
 
     # --- 交易輸入區 ---
     st.subheader("📝 新增交易")
-    # 簡化選項文字，確保手機版顯示正常
     txn_type = st.radio("類型", ["💸 支出", "💰 收入"], horizontal=True)
     
     with st.form("expense_form", clear_on_submit=True):
@@ -344,8 +365,8 @@ if page == "💸 隨手記帳 (本月)":
         reimburse_target = ""
         
         if "支出" in txn_type:
-            # 簡化選項文字，確保手機版顯示正常
-            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是 (代墊)"], horizontal=True)
+            # 1. 選項簡化為「是」
+            is_reimbursable = c4.radio("是否報帳/代墊?", ["否", "是"], horizontal=True)
             if "是" in is_reimbursable:
                 st.info("💡 代墊款會先扣除你的資產與額度，直到朋友還錢。")
                 reimburse_target = st.text_input("幫誰代墊？", placeholder="例如: Andy")
@@ -431,9 +452,11 @@ if page == "💸 隨手記帳 (本月)":
                 with col_amt:
                     st.markdown(f"<div style='margin-top:10px;'>{amt_html}</div>", unsafe_allow_html=True)
                 with col_action:
+                    # 2. 開關文字優化
                     if "報帳" in txn_class or txn_class == "收入":
                         is_cleared = (status == "已入帳")
-                        toggle_label = "已還?" if "報帳" in txn_class else ""
+                        # 收入顯示「已入帳?」，代墊顯示「已結清?」
+                        toggle_label = "已結清?" if "報帳" in txn_class else "已入帳?"
                         
                         if st.toggle(toggle_label, value=is_cleared, key=f"tg_{index}") != is_cleared:
                             new_state = not is_cleared
