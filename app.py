@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v22.0 5-Column Dashboard) ---
+# --- CSS 極致美化 (v22.1 Smart Warning) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
@@ -21,12 +21,12 @@ st.markdown("""
     /* 2. 萬用卡片 */
     .custom-card {
         background-color: #262730 !important;
-        padding: 16px !important; /* 稍微縮小內距以適應5欄 */
+        padding: 16px !important;
         border-radius: 15px !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
         margin-bottom: 24px !important;
-        height: 100%; /* 等高 */
+        height: 100%;
         display: flex; flex-direction: column; justify-content: space-between;
     }
     .card-title { font-size: 13px; color: var(--text-color); opacity: 0.7; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -165,8 +165,7 @@ if not df_log.empty:
     p_mask = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
     pending_debt = int(current_month_logs[p_mask]['金額'].sum())
 
-    # 真實自費 = 總變動 - 應收帳款 (如果邏輯上 實際消耗 在未入帳時有計入的話)
-    # v19.2 邏輯: 代墊未入帳時，實際消耗=金額 (所以 Total Variable 包含 Pending)
+    # 真實自費 = 總變動 - 應收帳款
     real_self_expenses = total_variable_expenses - pending_debt
 
 current_gap = base_gap_static
@@ -174,7 +173,7 @@ base_budget = 97 if current_month == 2 else 2207
 surplus_from_gap = max(0, current_gap)
 remaining = (base_budget + surplus_from_gap) - total_variable_expenses
 
-# 潛在可用 (理論值)
+# 潛在可用
 potential_available = remaining + pending_debt
 
 # 同步函式
@@ -257,7 +256,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v22.0 (5-Col Dashboard)")
+st.sidebar.caption("宇毛的記帳本 v22.1 (Smart Warning)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -265,7 +264,6 @@ st.sidebar.caption("宇毛的記帳本 v22.0 (5-Col Dashboard)")
 if page == "💸 隨手記帳 (本月)":
     st.subheader(f"👋 {current_month} 月財務面板")
     
-    # 5欄位佈局
     c1, c2, c3, c4, c5 = st.columns(5)
     
     gap_note = "收入優先抵債" if current_gap < 0 else "溢出至額度"
@@ -282,7 +280,9 @@ if page == "💸 隨手記帳 (本月)":
     with c4: st.markdown(make_card("目前可用", f"${remaining}", f"➕ 若全回補: ${potential_available}", rem_color), unsafe_allow_html=True)
     with c5: st.markdown(make_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=gap_pct), unsafe_allow_html=True)
 
-    if remaining < 0: st.error("🚨 警告：本月已透支！請停止支出！")
+    # 🔴 核心邏輯修正：只在「真實花費」超過「本金」時才警告
+    if real_self_expenses > base_budget: 
+        st.error("🚨 警告：本月已透支！請停止支出！")
 
     st.markdown("---")
     st.subheader("📝 新增交易")
@@ -462,7 +462,7 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估
+# 📅 頁面 4：未來推估 (Mobile Fix + Sort)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 財務預測")
