@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v22.1 Smart Warning) ---
+# --- CSS 極致美化 (v23.0 Final Adjustments) ---
 st.markdown("""
 <style>
     /* 1. 全局設定 */
@@ -133,13 +133,35 @@ df_future, _ = get_data("未來四個月推估")
 
 if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-# 缺口 B9
+# 1. 取得台幣活存與目標 (for Gap Calculation)
+current_twd_balance = 0
+current_month_target = 0
 try:
-    if ws_status: base_gap_static = int(str(ws_status.cell(9, 2).value).replace(',', ''))
-    else: base_gap_static = -9999
-except: base_gap_static = -9999
+    if not df_assets.empty:
+        row = df_assets[df_assets['資產項目'] == '台幣活存']
+        if not row.empty:
+            current_twd_balance = int(str(row.iloc[0]['目前價值']).replace(',', ''))
+    
+    if not df_future.empty:
+        target_row = df_future[df_future['月份 (A)'].astype(str).str.contains(f"{current_month}月")]
+        if not target_row.empty:
+            current_month_target = int(str(target_row.iloc[0]['目標應有餘額 (E)']).replace(',', ''))
+except: pass
 
-# 計算數據
+# 2. 計算即時缺口
+if current_month_target != 0:
+    current_gap = current_twd_balance - current_month_target
+    if ws_status:
+        try: ws_status.update_cell(9, 2, current_gap)
+        except: pass
+else:
+    # Fallback to reading B9
+    try:
+        if ws_status: current_gap = int(str(ws_status.cell(9, 2).value).replace(',', ''))
+        else: current_gap = -9999
+    except: current_gap = -9999
+
+# 3. 計算本月數據
 total_variable_expenses = 0
 pending_debt = 0
 current_month_logs = pd.DataFrame()
@@ -157,23 +179,17 @@ if not df_log.empty:
     current_month_logs['金額'] = pd.to_numeric(current_month_logs['金額'], errors='coerce').fillna(0)
     current_month_logs['項目'] = current_month_logs['項目'].astype(str)
     
-    # 總變動支出 (含代墊)
     v_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[v_mask]['實際消耗'].sum())
     
-    # 未入帳代墊 (應收帳款)
     p_mask = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
     pending_debt = int(current_month_logs[p_mask]['金額'].sum())
 
-    # 真實自費 = 總變動 - 應收帳款
     real_self_expenses = total_variable_expenses - pending_debt
 
-current_gap = base_gap_static
 base_budget = 97 if current_month == 2 else 2207
 surplus_from_gap = max(0, current_gap)
 remaining = (base_budget + surplus_from_gap) - total_variable_expenses
-
-# 潛在可用
 potential_available = remaining + pending_debt
 
 # 同步函式
@@ -189,8 +205,8 @@ def sync_update(amount_change):
                 ws_assets.update_cell(i+2, 2, new_twd)
                 break
         ws_status.update_cell(6, 2, new_twd)
-        curr_gap = int(str(ws_status.cell(9, 2).value).replace(',', ''))
-        ws_status.update_cell(9, 2, curr_gap + amount_change)
+        # Gap Update is handled dynamically on next reload, but we update B9 for consistency
+        ws_status.update_cell(9, 2, current_gap + amount_change)
     except: pass
 
 # ==========================================
@@ -209,9 +225,7 @@ def execute_auto_entry(name, amount, type_code="固定", is_transfer=False):
     if name == "自我分期(還債)":
         ws_log.append_row([date_str, name, amount, "固定", 0, "固定扣款"])
         if ws_status:
-            try: 
-                cur_gap = int(str(ws_status.cell(9, 2).value).replace(',', ''))
-                ws_status.update_cell(9, 2, cur_gap + amount)
+            try: ws_status.update_cell(9, 2, current_gap + amount)
             except: pass
         st.toast(f"✅ {name} 已執行！"); time.sleep(1); st.rerun(); return
 
@@ -256,7 +270,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v22.1 (Smart Warning)")
+st.sidebar.caption("宇毛的記帳本 v23.0 (AR Focus)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -266,21 +280,23 @@ if page == "💸 隨手記帳 (本月)":
     
     c1, c2, c3, c4, c5 = st.columns(5)
     
-    gap_note = "收入優先抵債" if current_gap < 0 else "溢出至額度"
+    # 缺口卡片：顏色與備註
     gap_color = "orange" if current_gap < 0 else "green"
-    try: gap_pct = 1.0 - (abs(current_gap) / 3000)
-    except: gap_pct = 0
+    # 直接顯示算式：目標 - 活存
+    gap_note = f"目標 ${current_month_target} - 活存 ${current_twd_balance}"
+    
     rem_color = "green"
     if remaining < 0: rem_color = "red"
     elif remaining < 50: rem_color = "orange"
 
     with c1: st.markdown(make_card(f"{current_month}月本金", f"${base_budget}", "固定額度", "blue"), unsafe_allow_html=True)
     with c2: st.markdown(make_card("真實花費", f"${real_self_expenses}", "不含代墊款", "gray"), unsafe_allow_html=True)
-    with c3: st.markdown(make_card("應收代墊", f"${pending_debt}", "還卡在外面", "purple"), unsafe_allow_html=True)
-    with c4: st.markdown(make_card("目前可用", f"${remaining}", f"➕ 若全回補: ${potential_available}", rem_color), unsafe_allow_html=True)
-    with c5: st.markdown(make_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=gap_pct), unsafe_allow_html=True)
+    with c3: st.markdown(make_card("應收帳款", f"${pending_debt}", "尚未收款", "purple"), unsafe_allow_html=True)
+    # 交換位置：主顯示 全回補，副顯示 實際現金
+    with c4: st.markdown(make_card("目前可用", f"${potential_available}", f"實際現金: ${remaining}", rem_color), unsafe_allow_html=True)
+    # 移除進度條
+    with c5: st.markdown(make_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=None), unsafe_allow_html=True)
 
-    # 🔴 核心邏輯修正：只在「真實花費」超過「本金」時才警告
     if real_self_expenses > base_budget: 
         st.error("🚨 警告：本月已透支！請停止支出！")
 
@@ -337,7 +353,6 @@ if page == "💸 隨手記帳 (本月)":
 
             with st.container():
                 c_row, c_act = st.columns([6, 1])
-                
                 with c_row:
                     st.markdown(f"""
                     <div class="list-row">
