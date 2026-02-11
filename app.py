@@ -9,10 +9,10 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v24.0 True Adaptive) ---
+# --- CSS 極致美化 (v24.1 Mobile Fix) ---
 st.markdown("""
 <style>
-    /* 1. 全局設定：移除強制背景色，改用系統變數 */
+    /* 1. 全局設定 */
     .stApp {
         background-color: var(--background-color);
         color: var(--text-color);
@@ -20,15 +20,33 @@ st.markdown("""
     
     #MainMenu {visibility: hidden;} 
     footer {visibility: hidden;}
-    .block-container { padding-top: 2rem; padding-bottom: 5rem; }
+    
+    /* 修正頂部與手機選單按鈕 */
+    header[data-testid="stHeader"] {
+        z-index: 100000 !important; /* 確保按鈕永遠在最上層 */
+        background-color: transparent !important; /* 避免擋到背景 */
+    }
+    
+    /* 🔴 關鍵修正：側邊欄 (手機版防重疊) */
+    section[data-testid="stSidebar"] {
+        background-color: #111827 !important; /* 強制實心深色背景 */
+        z-index: 99999 !important; /* 強制圖層置頂 */
+        box-shadow: 5px 0 15px rgba(0,0,0,0.5) !important; /* 加深陰影，區隔主畫面 */
+    }
+    
+    /* 側邊欄內的導航區塊 */
+    div[data-testid="stSidebarNav"] {
+        background-color: #111827 !important;
+    }
 
-    /* 2. 萬用卡片 (自動適應底色) */
+    .block-container { padding-top: 3rem; padding-bottom: 5rem; }
+
+    /* 2. 萬用卡片 */
     .custom-card {
         background-color: var(--secondary-background-color) !important;
         padding: 16px !important;
         border-radius: 15px !important;
-        /* 使用半透明邊框，白底黑底都適用 */
-        border: 1px solid rgba(128, 128, 128, 0.2) !important; 
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
         margin-bottom: 24px !important;
         height: 100%;
@@ -36,55 +54,25 @@ st.markdown("""
     }
     
     .card-title { 
-        font-size: 13px; 
-        color: var(--text-color); /* 自動變色 */
-        opacity: 0.7; 
-        font-weight: 700; 
-        text-transform: uppercase; 
-        margin-bottom: 8px; 
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+        font-size: 13px; color: var(--text-color); opacity: 0.7; font-weight: 700; 
+        text-transform: uppercase; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
     }
-    
     .card-value { 
-        font-size: 24px; 
-        font-weight: 800; 
-        color: var(--text-color); /* 自動變色 */
-        margin-bottom: 5px; 
-        white-space: nowrap; 
+        font-size: 24px; font-weight: 800; color: var(--text-color); margin-bottom: 5px; white-space: nowrap; 
     }
-    
-    .card-note { 
-        font-size: 11px; 
-        font-weight: 600; 
-        opacity: 0.9;
-        color: var(--text-color); /* 自動變色 */
-    }
+    .card-note { font-size: 11px; font-weight: 600; opacity: 0.9; color: var(--text-color); }
 
     /* 3. 進度條 */
-    .progress-bg { 
-        width: 100%; height: 6px; 
-        background-color: rgba(128, 128, 128, 0.2); /* 通用半透明灰 */
-        border-radius: 3px; margin-top: 12px; overflow: hidden; 
-    }
+    .progress-bg { width: 100%; height: 6px; background-color: rgba(128, 128, 128, 0.2); border-radius: 3px; margin-top: 12px; overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 3px; }
 
     /* 4. 資產方塊 */
     .asset-box {
-        background-color: var(--secondary-background-color) !important; 
-        padding: 15px; border-radius: 12px;
-        border: 1px solid rgba(128, 128, 128, 0.2); 
-        text-align: center; margin-bottom: 10px;
+        background-color: var(--secondary-background-color) !important; padding: 15px; border-radius: 12px;
+        border: 1px solid rgba(128, 128, 128, 0.2); text-align: center; margin-bottom: 10px;
     }
-    .asset-num { 
-        font-size: 26px; font-weight: 800; 
-        color: var(--text-color); /* 自動變色 */
-        font-family: 'Roboto Mono', monospace; 
-        margin-bottom: 4px; 
-    }
-    .asset-desc { 
-        font-size: 12px; opacity: 0.6; font-weight: 600; 
-        color: var(--text-color); /* 自動變色 */
-    }
+    .asset-num { font-size: 26px; font-weight: 800; color: var(--text-color); font-family: 'Roboto Mono', monospace; margin-bottom: 4px; }
+    .asset-desc { font-size: 12px; opacity: 0.6; font-weight: 600; color: var(--text-color); }
 
     /* 5. 列表項目 */
     .list-row {
@@ -96,11 +84,7 @@ st.markdown("""
     }
     .list-left { display: flex; flex-direction: column; gap: 4px; }
     .list-right { text-align: right; }
-    .list-amt { 
-        font-size: 20px; font-weight: 800; 
-        font-family: 'Roboto Mono', monospace; 
-        /* 這裡不設 color，因為會有紅綠變化 */
-    }
+    .list-amt { font-size: 20px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
     /* 6. 標籤 Badge */
     .status-badge { 
@@ -110,18 +94,14 @@ st.markdown("""
 
     /* 7. 模型標題 */
     .model-header {
-        font-size: 14px; font-weight: 700; 
-        color: var(--text-color); opacity: 0.6;
-        margin-top: 30px; margin-bottom: 15px; 
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2); 
-        padding-bottom: 5px;
+        font-size: 14px; font-weight: 700; color: var(--text-color); opacity: 0.6;
+        margin-top: 30px; margin-bottom: 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); padding-bottom: 5px;
     }
 
-    /* 8. 結算區 (改用通用漸層或單色，這裡維持特殊色因為是重點區) */
+    /* 8. 結算區 */
     .summary-box {
-        background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); /* 這是唯一寫死的深色區塊，文字強制白 */
-        color: white; 
-        padding: 24px; border-radius: 20px; margin-top: 30px;
+        background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
+        color: white; padding: 24px; border-radius: 20px; margin-top: 30px;
         box-shadow: 0 10px 20px rgba(0,0,0,0.2);
         display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: center;
     }
@@ -129,30 +109,11 @@ st.markdown("""
 
     /* 9. 元件優化 */
     .stButton > button { 
-        border-radius: 10px !important; 
-        border: 1px solid rgba(128,128,128,0.2) !important; 
-        font-weight: bold; 
-        background-color: var(--secondary-background-color) !important;
-        color: var(--text-color) !important;
+        border-radius: 10px !important; border: 1px solid rgba(128,128,128,0.2) !important; 
+        font-weight: bold; background-color: var(--secondary-background-color) !important; color: var(--text-color) !important;
     }
-    .stButton > button[kind="primary"] { 
-        background-color: #ef4444 !important; 
-        color: white !important; 
-        border: none !important; 
-    }
-    
-    /* 輸入框適應 */
-    .stTextInput > div > div > input { 
-        background-color: var(--secondary-background-color) !important; 
-        color: var(--text-color) !important; 
-        border-radius: 10px; 
-        border: 1px solid rgba(128, 128, 128, 0.2);
-    }
-    
-    /* 側邊欄背景 */
-    section[data-testid="stSidebar"] { 
-        background-color: var(--secondary-background-color);
-    }
+    .stButton > button[kind="primary"] { background-color: #ef4444 !important; color: white !important; border: none !important; }
+    .stTextInput > div > div > input { background-color: var(--secondary-background-color) !important; color: var(--text-color) !important; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -178,39 +139,14 @@ def get_data(ws_name, head=1):
 
 # --- UI 元件 ---
 def make_card(title, value, note, color="gray", progress=None):
-    # 這裡的顏色只影響裝飾線條，文字色跟隨系統
     colors = {"blue": "#60a5fa", "red": "#f87171", "green": "#34d399", "orange": "#fbbf24", "gray": "var(--text-color)", "purple": "#a78bfa"}
     c_hex = colors.get(color, "var(--text-color)")
-    
     prog_html = f'<div class="progress-bg"><div class="progress-fill" style="width: {min(max(float(progress or 0),0),1)*100}%; background-color: {c_hex};"></div></div>' if progress is not None else ""
-    
-    # 注意：這裡的 style=color 若用 var(--text-color) 就能自動適應
-    note_color = c_hex if color != "gray" else "var(--text-color)"
-    
-    return f"""
-    <div class="custom-card">
-        <div class="card-title" style="color:var(--text-color)">{title}</div>
-        <div class="card-value">{value}</div>
-        <div class="card-note" style="color:{note_color}">{note}</div>
-        {prog_html}
-    </div>
-    """
+    return f"""<div class="custom-card"><div class="card-title" style="color:{c_hex}">{title}</div><div class="card-value">{value}</div><div class="card-note" style="color:{c_hex}">{note}</div>{prog_html}</div>"""
 
 def make_badge(text, color="gray"):
-    # 標籤背景色使用 rgba，在黑白底色都通透
-    c_map = {
-        "green": ("rgba(52, 211, 153, 0.2)", "#34d399"), 
-        "red": ("rgba(248, 113, 113, 0.2)", "#f87171"), 
-        "blue": ("rgba(96, 165, 250, 0.2)", "#60a5fa"), 
-        "purple": ("rgba(167, 139, 250, 0.2)", "#a78bfa"), 
-        "gray": ("rgba(156, 163, 175, 0.2)", "var(--text-color)")
-    }
+    c_map = {"green": ("rgba(16, 185, 129, 0.2)", "#34d399"), "red": ("rgba(239, 68, 68, 0.2)", "#f87171"), "blue": ("rgba(59, 130, 246, 0.2)", "#60a5fa"), "purple": ("rgba(139, 92, 246, 0.2)", "#a78bfa"), "gray": ("rgba(107, 114, 128, 0.2)", "var(--text-color)")}
     bg, fg = c_map.get(color, c_map["gray"])
-    # 如果是白天模式，淺色字可能看不清楚，這裡做個微調：文字顏色直接用深色一點的
-    # 但為了簡便，我們依賴 Streamlit 的 theme 調整，或者使用較深的通用色
-    # 修正：針對白天模式，文字顏色若為純亮色會看不見，這裡使用 CSS 變數或通用深色
-    # 簡單解法：讓 badge 的文字跟隨 fg，但在亮色模式下可能需要加深。
-    # 這裡保持原樣，因為 #34d399 等顏色在白底也還算可讀。
     return f'<span class="status-badge" style="background-color:{bg}; color:{fg};">{text}</span>'
 
 # ==========================================
@@ -363,7 +299,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v24.0 (Adaptive)")
+st.sidebar.caption("宇毛的記帳本 v24.1 (Mobile Menu Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
