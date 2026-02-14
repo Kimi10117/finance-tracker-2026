@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v25.3 Stability Fix) ---
+# --- CSS 極致美化 (v25.4 Solid Sidebar Fix) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -36,24 +36,34 @@ st.markdown("""
     footer {visibility: hidden;}
     .block-container { padding-top: 3rem; padding-bottom: 5rem; }
 
-    /* === 2. 側邊欄 (手機版強力背景修復) === */
+    /* === 2. 側邊欄 (手機版強制實色修復) === */
     section[data-testid="stSidebar"] {
-        /* 使用最重要的背景色設定，防止透明 */
-        background-color: var(--secondary-background-color) !important;
-        /* 強制不透明度，避免穿透 */
-        opacity: 1 !important;
-        /* 極高層級，確保壓在主內容之上 */
+        /* 預設深色模式底色 (強制實心) */
+        background-color: #262730 !important; 
+        
+        /* 邊框與陰影 */
+        border-right: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: 5px 0 20px rgba(0,0,0,0.5) !important;
+        
+        /* 強制置頂 */
         z-index: 999999 !important;
-        /* 添加陰影區隔 */
-        box-shadow: 5px 0 20px rgba(0,0,0,0.2) !important;
     }
     
-    /* 確保側邊欄內部的容器也是實心背景 */
+    /* 側邊欄內部容器也要確保顏色一致 */
     section[data-testid="stSidebar"] > div {
-        background-color: var(--secondary-background-color) !important;
+        background-color: #262730 !important;
     }
 
-    /* 側邊欄文字顏色修正 */
+    /* 淺色模式側邊欄覆寫 */
+    @media (prefers-color-scheme: light) {
+        section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div {
+            background-color: #f0f2f6 !important; /* 強制實心淺灰 */
+            border-right: 1px solid rgba(0,0,0,0.1) !important;
+            box-shadow: 5px 0 20px rgba(0,0,0,0.1) !important;
+        }
+    }
+    
+    /* 側邊欄內文字顏色 (跟隨系統) */
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2, 
     section[data-testid="stSidebar"] h3, 
@@ -201,7 +211,6 @@ jpy_row_idx = -1
 
 try:
     if not df_assets.empty:
-        # 找台幣
         row = df_assets[df_assets['資產項目'] == '台幣活存']
         if not row.empty:
             current_twd_balance = int(str(row.iloc[0]['目前價值']).replace(',', ''))
@@ -230,10 +239,10 @@ else:
         else: current_gap = -9999
     except: current_gap = -9999
 
-# 3. 計算本月數據 (🔴 修復 Crash 關鍵：預先初始化)
+# 3. 計算本月數據 (預防 Crash: 預設值)
 total_variable_expenses = 0
 pending_debt = 0 
-real_self_expenses = 0  # <--- 這行救了 NameError
+real_self_expenses = 0  # Initialize variable to prevent NameError
 current_month_logs = pd.DataFrame()
 
 if not df_log.empty:
@@ -347,7 +356,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v25.3 (Stability & Sidebar Fix)")
+st.sidebar.caption("宇毛的記帳本 v25.4 (Mobile Sidebar Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
