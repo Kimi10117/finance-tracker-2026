@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v25.1 Sidebar Adaptive Fix) ---
+# --- CSS 極致美化 (v25.2 Mobile Sidebar Rescue) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -37,24 +37,44 @@ st.markdown("""
     footer {visibility: hidden;}
     .block-container { padding-top: 3rem; padding-bottom: 5rem; }
 
-    /* === 2. 側邊欄 (修正：自動適應 Light/Dark) === */
+    /* === 2. 側邊欄 (手機版強力修復) === */
     section[data-testid="stSidebar"] {
-        background-color: var(--secondary-background-color) !important; /* 跟隨系統 */
-        z-index: 99999 !important; /* 保持手機版置頂防重疊 */
-        box-shadow: 5px 0 15px rgba(0,0,0,0.1) !important; /* 輕微陰影 */
+        /* 預設深色模式背景 (高不透明度 95%) */
+        background-color: rgba(14, 17, 23, 0.98) !important; 
+        
+        /* 磨砂特效 */
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        
+        /* 邊框與陰影 */
+        border-right: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.5) !important;
+        
+        /* 強制置頂 */
+        z-index: 999999 !important;
+    }
+
+    /* 淺色模式側邊欄覆寫 */
+    @media (prefers-color-scheme: light) {
+        section[data-testid="stSidebar"] {
+            background-color: rgba(255, 255, 255, 0.98) !important;
+            border-right: 1px solid rgba(0,0,0,0.1) !important;
+            box-shadow: 10px 0 30px rgba(0,0,0,0.1) !important;
+        }
     }
     
-    /* 移除強制反白的文字設定，讓它跟隨系統 */
+    /* 側邊欄內元件顏色修正 (確保對比度) */
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2, 
     section[data-testid="stSidebar"] h3, 
     section[data-testid="stSidebar"] span, 
     section[data-testid="stSidebar"] label, 
-    section[data-testid="stSidebar"] div {
+    section[data-testid="stSidebar"] div,
+    section[data-testid="stSidebar"] p {
         color: var(--text-color) !important;
     }
     
-    /* 側邊欄輸入框 (跟隨主題) */
+    /* 側邊欄輸入框 */
     section[data-testid="stSidebar"] input {
         background-color: var(--background-color) !important;
         color: var(--text-color) !important;
@@ -191,13 +211,11 @@ jpy_row_idx = -1
 
 try:
     if not df_assets.empty:
-        # 找台幣
         row = df_assets[df_assets['資產項目'] == '台幣活存']
         if not row.empty:
             current_twd_balance = int(str(row.iloc[0]['目前價值']).replace(',', ''))
             twd_row_idx = row.index[0] + 2
         
-        # 找日幣
         row_j = df_assets[df_assets['資產項目'] == '日幣帳戶']
         if not row_j.empty:
             current_jpy_balance = int(str(row_j.iloc[0]['目前價值']).replace(',', ''))
@@ -223,7 +241,7 @@ else:
 
 # 3. 計算本月數據
 total_variable_expenses = 0
-pending_debt = 0 # 應收帳款
+pending_debt = 0 
 current_month_logs = pd.DataFrame()
 
 if not df_log.empty:
@@ -242,18 +260,15 @@ if not df_log.empty:
     current_month_logs['是否報帳'] = current_month_logs['是否報帳'].astype(str)
     current_month_logs['已入帳'] = current_month_logs['已入帳'].astype(str).str.strip()
 
-    # 總變動支出
     v_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[v_mask]['實際消耗'].sum())
     
-    # 應收帳款
     p_mask = (
         ((current_month_logs['是否報帳'] == '是') | (current_month_logs['是否報帳'] == '收入')) & 
         (current_month_logs['已入帳'] == '未入帳')
     )
     pending_debt = int(current_month_logs[p_mask]['金額'].sum())
 
-    # 真實自費
     reimburse_pending = current_month_logs[(current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')]['實際消耗'].sum()
     real_self_expenses = total_variable_expenses - int(reimburse_pending)
 
@@ -340,7 +355,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v25.1 (Sidebar Adaptive)")
+st.sidebar.caption("宇毛的記帳本 v25.2 (Mobile Sidebar Rescue)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -402,7 +417,6 @@ if page == "💸 隨手記帳 (本月)":
     if not current_month_logs.empty:
         st.markdown("### 📜 本月明細")
         
-        # --- 篩選器 ---
         filter_opts = st.multiselect(
             "篩選類別:", 
             ["一般消費", "報帳(未入)", "報帳(已入)", "收入(未入)", "收入(已入)", "固定收支"],
@@ -601,7 +615,7 @@ elif page == "📊 資產與收支":
         except: pass
 
 # ==========================================
-# 📅 頁面 4：未來推估
+# 📅 頁面 4：未來推估 (Mobile Fix + Sort)
 # ==========================================
 elif page == "📅 未來推估":
     st.subheader("🔮 財務預測")
