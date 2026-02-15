@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v26.0 Liquid Glass) ---
+# --- CSS 極致美化 (v27.0 Wishlist Sync) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -211,7 +211,7 @@ else:
         else: current_gap = -9999
     except: current_gap = -9999
 
-# 3. 計算本月數據 (含應收帳款拆解)
+# 3. 計算本月數據
 total_variable_expenses = 0
 pending_debt = 0 
 real_self_expenses = 0
@@ -238,12 +238,9 @@ if not df_log.empty:
     v_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[v_mask]['實際消耗'].sum())
     
-    # 拆解應收帳款
-    # 1. 未入帳的收入
     mask_rev = (current_month_logs['是否報帳'] == '收入') & (current_month_logs['已入帳'] == '未入帳')
     pending_revenue = int(current_month_logs[mask_rev]['金額'].sum())
     
-    # 2. 未入帳的代墊
     mask_reim = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
     pending_reimburse = int(current_month_logs[mask_reim]['金額'].sum())
     
@@ -335,7 +332,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v26.0 (Detail & Wishlist)")
+st.sidebar.caption("宇毛的記帳本 v27.0 (Wishlist Sync)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -353,7 +350,6 @@ if page == "💸 隨手記帳 (本月)":
 
     with c1: st.markdown(make_card(f"{current_month}月本金", f"${base_budget}", "固定額度", "blue"), unsafe_allow_html=True)
     with c2: st.markdown(make_card("真實花費", f"${real_self_expenses}", "不含代墊款", "gray"), unsafe_allow_html=True)
-    # 更新卡片 3：顯示詳細備註
     with c3: st.markdown(make_card("應收帳款", f"${pending_debt}", f"收入: ${pending_revenue} | 代墊: ${pending_reimburse}", "purple"), unsafe_allow_html=True)
     with c4: st.markdown(make_card("目前可用", f"${potential_available}", f"實際現金: ${remaining}", rem_color), unsafe_allow_html=True)
     with c5: st.markdown(make_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=None), unsafe_allow_html=True)
@@ -374,14 +370,13 @@ if page == "💸 隨手記帳 (本月)":
         is_reim = "否"
         
         if "支出" in txn_type:
-            # 移除幫誰代墊的輸入框
             is_reim = col4.radio("是否代墊?", ["否", "是"], horizontal=True)
         else: st.caption("ℹ️ 收入預設 **未入帳**")
             
         if st.form_submit_button("確認記帳", use_container_width=True, type="primary") and ws_log:
             if n_in and a_in > 0:
                 d_str = d_in.strftime("%m/%d")
-                final_name = n_in # 不再串接目標人名
+                final_name = n_in 
                 
                 if "支出" in txn_type:
                     act = a_in
@@ -498,7 +493,7 @@ elif page == "🛍️ 購物冷靜清單":
             desire = c3.slider("想要指數", 1, 5, 3) 
             note = st.text_input("備註 (選填)")
             if st.form_submit_button("加入") and ws_shop:
-                # 假設結構：日期 | 物品 | 價格 | 想要指數 | 預計購買日 | 決策 | 備註
+                # 寫入邏輯: 日期 | 物品 | 價格 | 想要指數 | 預計購買日 | 決策 | 備註
                 ws_shop.append_row([datetime.now().strftime("%m/%d"), n, p, desire, "2026/07/01", "延後", note])
                 st.success("已加入"); time.sleep(1); st.rerun()
     
@@ -506,7 +501,6 @@ elif page == "🛍️ 購物冷靜清單":
         st.markdown("### 📦 明細 (可編輯)")
         for i, row in df_shop.iterrows():
             desire_val = row.get('想要指數', 3)
-            # 顯示指數
             title_str = f"🔥 {desire_val} | {row.get('物品名稱', '未命名')} - ${row.get('預估價格', 0)}"
             
             with st.expander(title_str):
@@ -514,7 +508,6 @@ elif page == "🛍️ 購物冷靜清單":
                     c_edit_1, c_edit_2, c_edit_3 = st.columns([2, 1, 1])
                     new_name = c_edit_1.text_input("名稱", value=row.get('物品名稱', ''))
                     new_price = c_edit_2.number_input("價格", value=int(str(row.get('預估價格', 0)).replace(',','')), min_value=0)
-                    # 編輯想要指數
                     new_desire = c_edit_3.slider("想要指數", 1, 5, int(str(desire_val)) if str(desire_val).isdigit() else 3)
                     
                     new_note = st.text_input("備註", value=row.get('備註', ''))
@@ -523,7 +516,7 @@ elif page == "🛍️ 購物冷靜清單":
                     if c_btn_1.form_submit_button("💾 保存修改"):
                         ws_shop.update_cell(i+2, 2, new_name)
                         ws_shop.update_cell(i+2, 3, new_price)
-                        ws_shop.update_cell(i+2, 4, new_desire) # Column 4 is Desire Index
+                        ws_shop.update_cell(i+2, 4, new_desire) # 寫回 D 欄
                         ws_shop.update_cell(i+2, 7, new_note)
                         st.success("已保存"); time.sleep(0.5); st.rerun()
                         
