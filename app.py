@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v27.0 Wishlist Sync) ---
+# --- CSS 極致美化 (v27.1 Sync Fix) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -332,7 +332,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v27.0 (Wishlist Sync)")
+st.sidebar.caption("宇毛的記帳本 v27.1 (Sync Fix)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -489,18 +489,17 @@ elif page == "🛍️ 購物冷靜清單":
             c1, c2, c3 = st.columns([2, 1, 1])
             n = c1.text_input("物品")
             p = c2.number_input("價格", min_value=0)
-            # 新增想要指數滑桿
             desire = c3.slider("想要指數", 1, 5, 3) 
             note = st.text_input("備註 (選填)")
             if st.form_submit_button("加入") and ws_shop:
-                # 寫入邏輯: 日期 | 物品 | 價格 | 想要指數 | 預計購買日 | 決策 | 備註
                 ws_shop.append_row([datetime.now().strftime("%m/%d"), n, p, desire, "2026/07/01", "延後", note])
                 st.success("已加入"); time.sleep(1); st.rerun()
     
     if not df_shop.empty:
         st.markdown("### 📦 明細 (可編輯)")
         for i, row in df_shop.iterrows():
-            desire_val = row.get('想要指數', 3)
+            # 🔴 修正：改讀 '想要程度' 而不是 '想要指數'
+            desire_val = row.get('想要程度', 3)
             title_str = f"🔥 {desire_val} | {row.get('物品名稱', '未命名')} - ${row.get('預估價格', 0)}"
             
             with st.expander(title_str):
@@ -516,7 +515,7 @@ elif page == "🛍️ 購物冷靜清單":
                     if c_btn_1.form_submit_button("💾 保存修改"):
                         ws_shop.update_cell(i+2, 2, new_name)
                         ws_shop.update_cell(i+2, 3, new_price)
-                        ws_shop.update_cell(i+2, 4, new_desire) # 寫回 D 欄
+                        ws_shop.update_cell(i+2, 4, new_desire)
                         ws_shop.update_cell(i+2, 7, new_note)
                         st.success("已保存"); time.sleep(0.5); st.rerun()
                         
