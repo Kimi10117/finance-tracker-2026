@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v25.4 Solid Sidebar Fix) ---
+# --- CSS 極致美化 (v26.0 Liquid Glass) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -38,50 +38,30 @@ st.markdown("""
 
     /* === 2. 側邊欄 (手機版強制實色修復) === */
     section[data-testid="stSidebar"] {
-        /* 預設深色模式底色 (強制實心) */
         background-color: #262730 !important; 
-        
-        /* 邊框與陰影 */
         border-right: 1px solid rgba(255,255,255,0.1) !important;
         box-shadow: 5px 0 20px rgba(0,0,0,0.5) !important;
-        
-        /* 強制置頂 */
         z-index: 999999 !important;
     }
-    
-    /* 側邊欄內部容器也要確保顏色一致 */
     section[data-testid="stSidebar"] > div {
         background-color: #262730 !important;
     }
 
-    /* 淺色模式側邊欄覆寫 */
     @media (prefers-color-scheme: light) {
         section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div {
-            background-color: #f0f2f6 !important; /* 強制實心淺灰 */
+            background-color: #f0f2f6 !important;
             border-right: 1px solid rgba(0,0,0,0.1) !important;
             box-shadow: 5px 0 20px rgba(0,0,0,0.1) !important;
         }
     }
     
-    /* 側邊欄內文字顏色 (跟隨系統) */
-    section[data-testid="stSidebar"] h1, 
-    section[data-testid="stSidebar"] h2, 
-    section[data-testid="stSidebar"] h3, 
-    section[data-testid="stSidebar"] span, 
-    section[data-testid="stSidebar"] label, 
-    section[data-testid="stSidebar"] div,
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] span, section[data-testid="stSidebar"] label, 
     section[data-testid="stSidebar"] p {
         color: var(--text-color) !important;
     }
     
-    /* 側邊欄輸入框 */
-    section[data-testid="stSidebar"] input {
-        background-color: var(--background-color) !important;
-        color: var(--text-color) !important;
-        border: 1px solid var(--glass-border) !important;
-    }
-    /* 側邊欄按鈕 */
-    section[data-testid="stSidebar"] button {
+    section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] button {
         background-color: var(--background-color) !important;
         color: var(--text-color) !important;
         border: 1px solid var(--glass-border) !important;
@@ -140,17 +120,10 @@ st.markdown("""
     }
     .summary-val { font-size: 24px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
 
-    /* 按鈕與輸入框 */
     .stButton > button { border-radius: 10px !important; font-weight: bold; background: var(--glass-bg); border: 1px solid var(--glass-border); color: var(--text-color); }
     .stButton > button[kind="primary"] { background-color: #ef4444 !important; color: white !important; border: none !important; }
-    .stTextInput > div > div > input, .stNumberInput > div > div > input { 
-        background-color: transparent !important; 
-        border: 1px solid var(--glass-border); 
-        border-radius: 10px; 
-        color: var(--text-color) !important;
-    }
+    .stTextInput > div > div > input, .stNumberInput > div > div > input { background-color: transparent !important; border: 1px solid var(--glass-border); border-radius: 10px; color: var(--text-color) !important; }
     
-    /* 修正頂部選單按鈕 */
     header[data-testid="stHeader"] { z-index: 100000; background-color: transparent; }
 </style>
 """, unsafe_allow_html=True)
@@ -215,7 +188,6 @@ try:
         if not row.empty:
             current_twd_balance = int(str(row.iloc[0]['目前價值']).replace(',', ''))
             twd_row_idx = row.index[0] + 2
-        
         row_j = df_assets[df_assets['資產項目'] == '日幣帳戶']
         if not row_j.empty:
             current_jpy_balance = int(str(row_j.iloc[0]['目前價值']).replace(',', ''))
@@ -239,10 +211,12 @@ else:
         else: current_gap = -9999
     except: current_gap = -9999
 
-# 3. 計算本月數據 (預防 Crash: 預設值)
+# 3. 計算本月數據 (含應收帳款拆解)
 total_variable_expenses = 0
 pending_debt = 0 
-real_self_expenses = 0  # Initialize variable to prevent NameError
+real_self_expenses = 0
+pending_revenue = 0
+pending_reimburse = 0
 current_month_logs = pd.DataFrame()
 
 if not df_log.empty:
@@ -264,14 +238,19 @@ if not df_log.empty:
     v_mask = (current_month_logs['實際消耗'] > 0) & (current_month_logs['是否報帳'] != '固定')
     total_variable_expenses = int(current_month_logs[v_mask]['實際消耗'].sum())
     
-    p_mask = (
-        ((current_month_logs['是否報帳'] == '是') | (current_month_logs['是否報帳'] == '收入')) & 
-        (current_month_logs['已入帳'] == '未入帳')
-    )
-    pending_debt = int(current_month_logs[p_mask]['金額'].sum())
+    # 拆解應收帳款
+    # 1. 未入帳的收入
+    mask_rev = (current_month_logs['是否報帳'] == '收入') & (current_month_logs['已入帳'] == '未入帳')
+    pending_revenue = int(current_month_logs[mask_rev]['金額'].sum())
+    
+    # 2. 未入帳的代墊
+    mask_reim = (current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')
+    pending_reimburse = int(current_month_logs[mask_reim]['金額'].sum())
+    
+    pending_debt = pending_revenue + pending_reimburse
 
-    reimburse_pending = current_month_logs[(current_month_logs['是否報帳'] == '是') & (current_month_logs['已入帳'] == '未入帳')]['實際消耗'].sum()
-    real_self_expenses = total_variable_expenses - int(reimburse_pending)
+    reimburse_pending_cost = current_month_logs[mask_reim]['實際消耗'].sum()
+    real_self_expenses = total_variable_expenses - int(reimburse_pending_cost)
 
 base_budget = 97 if current_month == 2 else 2207
 surplus_from_gap = max(0, current_gap)
@@ -356,7 +335,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v25.4 (Mobile Sidebar Fix)")
+st.sidebar.caption("宇毛的記帳本 v26.0 (Detail & Wishlist)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -374,7 +353,8 @@ if page == "💸 隨手記帳 (本月)":
 
     with c1: st.markdown(make_card(f"{current_month}月本金", f"${base_budget}", "固定額度", "blue"), unsafe_allow_html=True)
     with c2: st.markdown(make_card("真實花費", f"${real_self_expenses}", "不含代墊款", "gray"), unsafe_allow_html=True)
-    with c3: st.markdown(make_card("應收帳款", f"${pending_debt}", "尚未收款", "purple"), unsafe_allow_html=True)
+    # 更新卡片 3：顯示詳細備註
+    with c3: st.markdown(make_card("應收帳款", f"${pending_debt}", f"收入: ${pending_revenue} | 代墊: ${pending_reimburse}", "purple"), unsafe_allow_html=True)
     with c4: st.markdown(make_card("目前可用", f"${potential_available}", f"實際現金: ${remaining}", rem_color), unsafe_allow_html=True)
     with c5: st.markdown(make_card("總透支缺口", f"${current_gap}", gap_note, gap_color, progress=None), unsafe_allow_html=True)
 
@@ -392,17 +372,16 @@ if page == "💸 隨手記帳 (本月)":
         col3, col4 = st.columns(2)
         a_in = col3.number_input("金額", min_value=1, step=1)
         is_reim = "否"
-        target = ""
         
         if "支出" in txn_type:
+            # 移除幫誰代墊的輸入框
             is_reim = col4.radio("是否代墊?", ["否", "是"], horizontal=True)
-            if is_reim == "是": target = st.text_input("幫誰代墊?", placeholder="Andy")
         else: st.caption("ℹ️ 收入預設 **未入帳**")
             
         if st.form_submit_button("確認記帳", use_container_width=True, type="primary") and ws_log:
             if n_in and a_in > 0:
                 d_str = d_in.strftime("%m/%d")
-                final_name = f"{n_in} ({target})" if target else n_in
+                final_name = n_in # 不再串接目標人名
                 
                 if "支出" in txn_type:
                     act = a_in
@@ -512,28 +491,39 @@ elif page == "🛍️ 購物冷靜清單":
     
     with st.expander("➕ 新增願望"):
         with st.form("add_shop"):
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns([2, 1, 1])
             n = c1.text_input("物品")
             p = c2.number_input("價格", min_value=0)
+            # 新增想要指數滑桿
+            desire = c3.slider("想要指數", 1, 5, 3) 
             note = st.text_input("備註 (選填)")
             if st.form_submit_button("加入") and ws_shop:
-                ws_shop.append_row([datetime.now().strftime("%m/%d"), n, p, "3", "2026/07/01", "延後", note])
+                # 假設結構：日期 | 物品 | 價格 | 想要指數 | 預計購買日 | 決策 | 備註
+                ws_shop.append_row([datetime.now().strftime("%m/%d"), n, p, desire, "2026/07/01", "延後", note])
                 st.success("已加入"); time.sleep(1); st.rerun()
     
     if not df_shop.empty:
         st.markdown("### 📦 明細 (可編輯)")
         for i, row in df_shop.iterrows():
-            with st.expander(f"🛒 {row.get('物品名稱', '未命名')} - ${row.get('預估價格', 0)}"):
+            desire_val = row.get('想要指數', 3)
+            # 顯示指數
+            title_str = f"🔥 {desire_val} | {row.get('物品名稱', '未命名')} - ${row.get('預估價格', 0)}"
+            
+            with st.expander(title_str):
                 with st.form(key=f"edit_shop_{i}"):
-                    c_edit_1, c_edit_2 = st.columns([2, 1])
+                    c_edit_1, c_edit_2, c_edit_3 = st.columns([2, 1, 1])
                     new_name = c_edit_1.text_input("名稱", value=row.get('物品名稱', ''))
                     new_price = c_edit_2.number_input("價格", value=int(str(row.get('預估價格', 0)).replace(',','')), min_value=0)
+                    # 編輯想要指數
+                    new_desire = c_edit_3.slider("想要指數", 1, 5, int(str(desire_val)) if str(desire_val).isdigit() else 3)
+                    
                     new_note = st.text_input("備註", value=row.get('備註', ''))
                     
                     c_btn_1, c_btn_2 = st.columns(2)
                     if c_btn_1.form_submit_button("💾 保存修改"):
                         ws_shop.update_cell(i+2, 2, new_name)
                         ws_shop.update_cell(i+2, 3, new_price)
+                        ws_shop.update_cell(i+2, 4, new_desire) # Column 4 is Desire Index
                         ws_shop.update_cell(i+2, 7, new_note)
                         st.success("已保存"); time.sleep(0.5); st.rerun()
                         
