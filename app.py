@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v27.1 Sync Fix) ---
+# --- CSS 極致美化 (v28.0 Sorting Upgrade) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -122,7 +122,7 @@ st.markdown("""
 
     .stButton > button { border-radius: 10px !important; font-weight: bold; background: var(--glass-bg); border: 1px solid var(--glass-border); color: var(--text-color); }
     .stButton > button[kind="primary"] { background-color: #ef4444 !important; color: white !important; border: none !important; }
-    .stTextInput > div > div > input, .stNumberInput > div > div > input { background-color: transparent !important; border: 1px solid var(--glass-border); border-radius: 10px; color: var(--text-color) !important; }
+    .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div { background-color: transparent !important; border: 1px solid var(--glass-border); border-radius: 10px; color: var(--text-color) !important; }
     
     header[data-testid="stHeader"] { z-index: 100000; background-color: transparent; }
 </style>
@@ -332,7 +332,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v27.1 (Sync Fix)")
+st.sidebar.caption("宇毛的記帳本 v28.0 (Sorting Upgrade)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -472,11 +472,37 @@ if page == "💸 隨手記帳 (本月)":
         st.markdown("---")
 
 # ==========================================
-# 🛍️ 頁面 2：購物冷靜清單
+# 🛍️ 頁面 2：購物冷靜清單 (排序 & 編輯)
 # ==========================================
 elif page == "🛍️ 購物冷靜清單":
-    st.subheader("🧊 購物冷靜清單")
+    
+    # 標題與排序選單
+    c_sort_1, c_sort_2 = st.columns([3, 1])
+    with c_sort_1: st.subheader("🧊 購物冷靜清單")
+    with c_sort_2:
+        sort_order = st.selectbox(
+            "排序依照", 
+            ["新增順序", "想要程度 (高→低)", "價格 (高→低)", "價格 (低→高)"]
+        )
+
     df_shop, ws_shop = get_data("購物冷靜清單")
+    
+    # 預處理資料以便排序
+    if not df_shop.empty:
+        # 處理價格 (去除逗號轉數字)
+        df_shop['SortPrice'] = df_shop['預估價格'].astype(str).str.replace(',', '').apply(lambda x: int(x) if x.isdigit() else 0)
+        # 處理想要程度 (轉數字)
+        df_shop['SortDesire'] = df_shop['想要程度'].apply(lambda x: int(str(x)) if str(x).isdigit() else 0)
+
+        # 執行排序
+        if sort_order == "想要程度 (高→低)":
+            df_shop = df_shop.sort_values('SortDesire', ascending=False)
+        elif sort_order == "價格 (高→低)":
+            df_shop = df_shop.sort_values('SortPrice', ascending=False)
+        elif sort_order == "價格 (低→高)":
+            df_shop = df_shop.sort_values('SortPrice', ascending=True)
+        # 新增順序則不處理，維持預設
+
     tot = sum([int(str(r.get('預估價格',0)).replace(',','')) for i,r in df_shop.iterrows()]) if not df_shop.empty else 0
     
     c1, c2 = st.columns(2)
@@ -497,13 +523,13 @@ elif page == "🛍️ 購物冷靜清單":
     
     if not df_shop.empty:
         st.markdown("### 📦 明細 (可編輯)")
-        for i, row in df_shop.iterrows():
-            # 🔴 修正：改讀 '想要程度' 而不是 '想要指數'
+        # 使用 iterrows 時，idx 會是原始 dataframe 的 index，這對應到 sheet row number 依然是 idx + 2
+        for idx, row in df_shop.iterrows():
             desire_val = row.get('想要程度', 3)
             title_str = f"🔥 {desire_val} | {row.get('物品名稱', '未命名')} - ${row.get('預估價格', 0)}"
             
             with st.expander(title_str):
-                with st.form(key=f"edit_shop_{i}"):
+                with st.form(key=f"edit_shop_{idx}"):
                     c_edit_1, c_edit_2, c_edit_3 = st.columns([2, 1, 1])
                     new_name = c_edit_1.text_input("名稱", value=row.get('物品名稱', ''))
                     new_price = c_edit_2.number_input("價格", value=int(str(row.get('預估價格', 0)).replace(',','')), min_value=0)
@@ -513,14 +539,17 @@ elif page == "🛍️ 購物冷靜清單":
                     
                     c_btn_1, c_btn_2 = st.columns(2)
                     if c_btn_1.form_submit_button("💾 保存修改"):
-                        ws_shop.update_cell(i+2, 2, new_name)
-                        ws_shop.update_cell(i+2, 3, new_price)
-                        ws_shop.update_cell(i+2, 4, new_desire)
-                        ws_shop.update_cell(i+2, 7, new_note)
+                        # 使用 idx + 2 確保寫回正確的行數，不受排序影響
+                        real_row = idx + 2
+                        ws_shop.update_cell(real_row, 2, new_name)
+                        ws_shop.update_cell(real_row, 3, new_price)
+                        ws_shop.update_cell(real_row, 4, new_desire)
+                        ws_shop.update_cell(real_row, 7, new_note)
                         st.success("已保存"); time.sleep(0.5); st.rerun()
                         
                     if c_btn_2.form_submit_button("🗑️ 刪除項目", type="primary"):
-                        ws_shop.delete_rows(i+2)
+                        real_row = idx + 2
+                        ws_shop.delete_rows(real_row)
                         st.success("已刪除"); time.sleep(0.5); st.rerun()
                 
                 d = row.get('最終決策', '考慮')
