@@ -9,7 +9,7 @@ import re
 # --- 設定頁面資訊 ---
 st.set_page_config(page_title="宇毛的財務中控台", page_icon="💰", layout="wide")
 
-# --- CSS 極致美化 (v30.0 Post Office Vault) ---
+# --- CSS 極致美化 (v31.0 Delete & Rollback) ---
 st.markdown("""
 <style>
     /* === 1. 全局變數與基礎 === */
@@ -175,10 +175,10 @@ df_future, _ = get_data("未來四個月推估")
 
 if not df_log.empty and '已入帳' not in df_log.columns: df_log['已入帳'] = '已入帳'
 
-# 1. 取得資產與目標 (含防呆邏輯)
-current_twd_balance = 0 # Richart
-current_lpm_balance = 0 # Line Pay
-current_post_balance = 0 # 郵局 (新)
+# 1. 取得資產與目標
+current_twd_balance = 0
+current_lpm_balance = 0 
+current_post_balance = 0
 current_jpy_balance = 0
 current_month_target = 0
 
@@ -189,16 +189,13 @@ jpy_row_idx = -1
 
 try:
     if not df_assets.empty:
-        # 強制清理欄位名稱
         df_assets['CleanName'] = df_assets['資產項目'].astype(str).str.strip()
         
-        # 找台幣
         row = df_assets[df_assets['CleanName'] == '台幣活存']
         if not row.empty:
             current_twd_balance = int(str(row.iloc[0]['目前價值']).replace(',', ''))
             twd_row_idx = row.index[0] + 2
         
-        # 找 Line Pay Money
         row_lpm = df_assets[df_assets['CleanName'].str.lower() == 'line pay money']
         if not row_lpm.empty:
             current_lpm_balance = int(str(row_lpm.iloc[0]['目前價值']).replace(',', ''))
@@ -207,7 +204,6 @@ try:
             current_lpm_balance = 0 
             lpm_row_idx = -1
 
-        # 找 郵局 (新)
         row_post = df_assets[df_assets['CleanName'] == '郵局']
         if not row_post.empty:
             current_post_balance = int(str(row_post.iloc[0]['目前價值']).replace(',', ''))
@@ -216,7 +212,6 @@ try:
             current_post_balance = 0
             post_row_idx = -1
 
-        # 找日幣
         row_j = df_assets[df_assets['CleanName'] == '日幣帳戶']
         if not row_j.empty:
             current_jpy_balance = int(str(row_j.iloc[0]['目前價值']).replace(',', ''))
@@ -228,8 +223,7 @@ try:
             current_month_target = int(str(target_row.iloc[0]['目標應有餘額 (E)']).replace(',', ''))
 except: pass
 
-# 2. 計算即時缺口 ( Richart + LPM - 目標 )
-# 郵局定義為金庫，不計入流動資金缺口
+# 2. 計算即時缺口
 current_total_liquid = current_twd_balance + current_lpm_balance
 
 if current_month_target != 0:
@@ -286,7 +280,7 @@ surplus_from_gap = max(0, current_gap)
 remaining = (base_budget + surplus_from_gap) - total_variable_expenses
 potential_available = remaining + pending_debt
 
-# 同步函式 (更新支援多帳戶)
+# 同步函式
 def sync_update(amount_change, account_name='台幣活存'):
     if not ws_assets or not ws_status: return
     try:
@@ -294,7 +288,6 @@ def sync_update(amount_change, account_name='台幣活存'):
         target_row = -1
         current_val = 0
         
-        # 模糊比對找帳戶
         for i, r in enumerate(all_assets):
             item_name = str(r.get('資產項目', '')).strip().lower()
             target_key = account_name.strip().lower()
@@ -305,17 +298,52 @@ def sync_update(amount_change, account_name='台幣活存'):
         
         if target_row != -1:
             ws_assets.update_cell(target_row, 2, current_val + amount_change)
-            # Richart 同步到 Status B6
             if account_name == '台幣活存':
                 ws_status.update_cell(6, 2, current_val + amount_change)
         
-        # 若變動的是流動資金 (Richart/LPM)，更新缺口
-        # 郵局是金庫，不影響每月流動缺口
         if account_name in ['台幣活存', 'Line Pay Money']:
             current_gap_val = int(str(ws_status.cell(9, 2).value).replace(',', ''))
             ws_status.update_cell(9, 2, current_gap_val + amount_change)
         
     except: pass
+
+# --- 刪除交易函式 (含餘額回補) ---
+def delete_transaction(row_idx, row_data):
+    if not ws_log: return
+    
+    # 1. 辨識帳戶
+    item_name = str(row_data['項目'])
+    if "(LPM)" in item_name: t_acct = "Line Pay Money"
+    elif "(郵局)" in item_name: t_acct = "郵局"
+    else: t_acct = "台幣活存"
+    
+    # 2. 判斷交易類型與回補金額
+    amt = int(row_data['金額'])
+    is_rev = False # 是否需要回補
+    reverse_amt = 0
+    
+    type_code = str(row_data['是否報帳'])
+    status = str(row_data['已入帳']).strip()
+    
+    if type_code in ['收入', '固定收入']:
+        # 如果是收入且已入帳，刪除時要扣回來
+        if status == '已入帳':
+            reverse_amt = -amt
+            is_rev = True
+    else:
+        # 如果是支出 (包含代墊)，刪除時要加回來
+        # 注意：代墊在記帳當下就已經扣款(現金流出)，所以刪除要加回
+        reverse_amt = amt
+        is_rev = True
+        
+    # 3. 執行回補與刪除
+    if is_rev and reverse_amt != 0:
+        sync_update(reverse_amt, t_acct)
+    
+    ws_log.delete_rows(row_idx)
+    st.toast(f"🗑️ 已刪除並回補 {t_acct} ${reverse_amt}")
+    time.sleep(1)
+    st.rerun()
 
 # ==========================================
 # 側邊欄
@@ -381,7 +409,7 @@ if pending_tasks:
 
 page = st.sidebar.radio("請選擇功能", ["💸 隨手記帳 (本月)", "🛍️ 購物冷靜清單", "📊 資產與收支", "📅 未來推估", "🗓️ 歷史帳本回顧"])
 st.sidebar.markdown("---")
-st.sidebar.caption("宇毛的記帳本 v30.0 (Post Office Vault)")
+st.sidebar.caption("宇毛的記帳本 v31.0 (Delete & Rollback)")
 
 # ==========================================
 # 🏠 頁面 1：隨手記帳
@@ -424,7 +452,6 @@ if page == "💸 隨手記帳 (本月)":
         else:
             c3_2.caption("ℹ️ 收入預設 **未入帳**")
             
-        # 帳戶選擇器 (含郵局)
         acct_map = {
             "🇹🇼 台幣活存 (Richart)": "台幣活存", 
             "🟩 Line Pay Money": "Line Pay Money",
@@ -497,7 +524,7 @@ if page == "💸 隨手記帳 (本月)":
             else: t_clr, pfx = "#f87171", "-$"
 
             with st.container():
-                c_row, c_act = st.columns([6, 1])
+                c_row, c_act, c_del = st.columns([6, 1, 0.5])
                 with c_row:
                     st.markdown(f"""
                     <div class="list-row">
@@ -522,7 +549,6 @@ if page == "💸 隨手記帳 (本月)":
                             new_s = "已入帳" if new_state else "未入帳"
                             new_act, chg = 0, 0
                             
-                            # 自動判斷回補帳戶
                             item_name = str(row['項目'])
                             if "(LPM)" in item_name: t_acct = "Line Pay Money"
                             elif "(郵局)" in item_name: t_acct = "郵局"
@@ -538,7 +564,15 @@ if page == "💸 隨手記帳 (本月)":
                             if chg != 0: sync_update(chg, t_acct)
                             ws_log.update_cell(real_idx, 5, new_act)
                             ws_log.update_cell(real_idx, 6, new_s)
-                            st.success(f"已更新至 {t_acct}"); time.sleep(0.5); st.rerun()
+                            st.success(f"已更新"); time.sleep(0.5); st.rerun()
+                
+                # 刪除按鈕
+                with c_del:
+                    st.write("")
+                    with st.popover("🗑️"):
+                        st.markdown("確認刪除此筆資料？")
+                        if st.button("確認", key=f"del_txn_{idx}", type="primary"):
+                            delete_transaction(real_idx, row)
         st.markdown("---")
 
 # ==========================================
@@ -607,7 +641,7 @@ elif page == "🛍️ 購物冷靜清單":
                         ws_shop.update_cell(real_row, 3, new_price)
                         ws_shop.update_cell(real_row, 4, new_desire)
                         ws_shop.update_cell(real_row, 7, new_note)
-                        st.success("已保存"); time.sleep(0.5); st.rerun()
+                        st.success("已保存"); time.sleep(1.0); st.rerun()
                         
                     if c_btn_2.form_submit_button("🗑️ 刪除項目", type="primary"):
                         real_row = idx + 2
@@ -623,7 +657,7 @@ elif page == "🛍️ 購物冷靜清單":
                 """, unsafe_allow_html=True)
 
 # ==========================================
-# 📊 頁面 3：資產與收支 (Layout Upgrade)
+# 📊 頁面 3：資產與收支
 # ==========================================
 elif page == "📊 資產與收支":
     st.subheader("💰 資產狀況")
@@ -636,7 +670,7 @@ elif page == "📊 資產與收支":
     tot = int(str(df_assets[df_assets['資產項目'] == '總資產'].iloc[0]['目前價值']).replace(',','')) if not df_assets.empty else 0
     st.markdown(make_card("目前總身價", f"${tot:,}", "含所有資產", "blue"), unsafe_allow_html=True)
     
-    # Row 1: 流動錢包 (Richart, LPM, JPY)
+    # Row 1: 流動錢包
     st.markdown("**👛 流動錢包**")
     c1, c2, c3 = st.columns(3)
     
@@ -660,7 +694,7 @@ elif page == "📊 資產與收支":
             new_jpy = st.number_input("新金額", value=current_jpy_balance, step=100)
             if st.button("更新日幣"): update_asset(jpy_row_idx, new_jpy)
 
-    # Row 2: 儲蓄金庫 (郵局, 定存)
+    # Row 2: 儲蓄金庫
     st.markdown("**🔒 儲蓄金庫**")
     c4, c5 = st.columns(2)
     
@@ -763,5 +797,20 @@ elif page == "🗓️ 歷史帳本回顧":
             st.markdown(make_card(f"{sel}月 淨支出", f"${int(h['實際消耗'].sum())}", "含收入抵銷後", "gray"), unsafe_allow_html=True)
             
             for i, r in h.iloc[::-1].iterrows():
+                # 這裡的 i 是過濾後的 index，r.name 才是原始 index
+                # 為了避免混淆，我們統一使用 r.name 作為識別
+                real_idx = r.name + 5 # 假設 df_log 的 index 是從 0 開始連續對應 row 5
+                
                 c = "#34d399" if r['實際消耗'] < 0 else "#f87171"
-                st.markdown(f"""<div class="list-row"><div><span style="font-size:0.8em;opacity:0.6;">{r['日期']}</span> <b>{r['項目']}</b></div><div style="color:{c};font-weight:bold;">${r['金額']}</div></div>""", unsafe_allow_html=True)
+                
+                with st.container():
+                    c_row, c_del = st.columns([7, 0.5])
+                    with c_row:
+                        st.markdown(f"""<div class="list-row"><div><span style="font-size:0.8em;opacity:0.6;">{r['日期']}</span> <b>{r['項目']}</b></div><div style="color:{c};font-weight:bold;">${r['金額']}</div></div>""", unsafe_allow_html=True)
+                    
+                    with c_del:
+                        st.write("")
+                        with st.popover("🗑️"):
+                            st.markdown("確認刪除？")
+                            if st.button("確認", key=f"hist_del_{real_idx}", type="primary"):
+                                delete_transaction(real_idx, r)
